@@ -6,7 +6,7 @@ volumes:
 
 services:
   postgresdb:
-    image: postgres
+    image: postgres:16-alpine
     env_file: ./.env
     environment:
       POSTGRES_USER: "$POSTGRESDB_USER"
@@ -16,21 +16,41 @@ services:
       - "$POSTGRESDB_LOCAL_PORT:$POSTGRESDB_DOCKER_PORT"
     volumes:
       - db:/var/lib/postgresql/data
+    restart: always
 
   app:
     depends_on:
       - postgresdb
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     env_file: ./.env
     ports:
       - "$NODE_LOCAL_PORT:$NODE_DOCKER_PORT"
     volumes:
+      # Монтирование Let's Encrypt сертификатов с сервера
       - /etc/letsencrypt/live/geos.icc.ru/fullchain.pem:/certs/fullchain.pem:ro
       - /etc/letsencrypt/live/geos.icc.ru/privkey.pem:/certs/privkey.pem:ro
     environment:
+      # Database
       DB_HOST: postgresdb
       DB_USER: "$POSTGRESDB_USER"
       DB_PASSWORD: "$POSTGRESDB_ROOT_PASSWORD"
       DB_NAME: "$POSTGRESDB_DATABASE"
       DB_PORT: "$POSTGRESDB_DOCKER_PORT"
+      # Application
+      PORT: "$NODE_DOCKER_PORT"
+      ENABLE_CRON: "true"
+      DEBUG: "false"
+      # SSL Configuration
+      SSL_ENABLED: "true"
+      SSL_KEY_PATH: "/certs/privkey.pem"
+      SSL_CERT_PATH: "/certs/fullchain.pem"
     restart: always
+    command: >
+      sh -c "
+      echo 'Waiting for database...' &&
+      /app/wait-for-it.sh postgresdb:$$POSTGRESDB_DOCKER_PORT --timeout=60 --strict -- 
+      echo 'Database is ready, starting application...' &&
+      python main.py
+      "

@@ -1,4 +1,3 @@
-
 version: '3.8'
 
 volumes:
@@ -6,39 +5,51 @@ volumes:
     driver: local
 
 services:
-  app:
-    depends_on:
-      postgresdb:
-       condition: service_healthy
-    build: .
-    env_file: ./.env
-    ports:
-      - $NODE_LOCAL_PORT:$NODE_DOCKER_PORT
-    environment:
-      - DB_HOST=postgresdb
-      - DB_USER=$POSTGRESDB_USER
-      - DB_PASSWORD=$POSTGRESDB_ROOT_PASSWORD
-      - DB_NAME=$POSTGRESDB_DATABASE
-      - DB_PORT=$POSTGRESDB_DOCKER_PORT
-    restart: always
-
+  # PostgreSQL должен стартовать первым
   postgresdb:
-    image: postgres
+    image: postgres:16-alpine
     env_file: ./.env
     environment:
-      - POSTGRES_USER=$POSTGRESDB_USER
-      - POSTGRES_PASSWORD=$POSTGRESDB_ROOT_PASSWORD
-      - POSTGRES_DB=$POSTGRESDB_DATABASE
+      - POSTGRES_USER=${POSTGRESDB_USER}
+      - POSTGRES_PASSWORD=${POSTGRESDB_ROOT_PASSWORD}
+      - POSTGRES_DB=${POSTGRESDB_DATABASE}
     ports:
-      - $POSTGRESDB_LOCAL_PORT:$POSTGRESDB_DOCKER_PORT
+      - ${POSTGRESDB_LOCAL_PORT:-5431}:${POSTGRESDB_DOCKER_PORT:-5432}
     volumes:
-      - db:/var/lib/postgres
+      - db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRESDB_USER}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: always
 
-  
+  # Приложение стартует после того как БД будет здорова
+  app:
+    depends_on:
+      postgresdb:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: ./.env
+    ports:
+      - ${NODE_LOCAL_PORT:-6868}:8080
+    environment:
+      - DB_HOST=postgresdb
+      - DB_USER=${POSTGRESDB_USER}
+      - DB_PASSWORD=${POSTGRESDB_ROOT_PASSWORD}
+      - DB_NAME=${POSTGRESDB_DATABASE}
+      - DB_PORT=${POSTGRESDB_DOCKER_PORT}
+      - PORT=8080
+      - ENABLE_CRON=${ENABLE_CRON:-true}
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      # Mount code for development (optional, comment out for production)
+      # - .:/app
+      # Mount certificates if using SSL
+      - ./certs:/certs:ro
+    restart: always
+    # Команда запуска (wait-for-it.sh не нужен - depends_on с healthcheck уже ждет БД)
+    command: ["python", "main.py"]
 
- 
