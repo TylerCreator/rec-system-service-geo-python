@@ -1,0 +1,162 @@
+<style>
+    .sidebar {
+        width: 300px;
+        transition: all 0.3s ease;
+    }
+    .sidebar.hidden {
+        display: none;
+    }
+    #loadingIndicator {
+        display: none;
+        text-align: center;
+        padding: 10px;
+        font-style: italic;
+        color: #666;
+    }
+    .truncate {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 180px;
+        display: inline-block;
+        vertical-align: middle;
+    }
+</style>
+
+<div
+    id="sidebar"
+    class="sidebar bg-light border p-3"
+    style="
+        position: absolute;
+        z-index: 10000;
+        top: 70px;
+        right: 0;
+        min-width: 320px;
+        height: 648px;
+        max-width: 500px;
+        transition: all 0.3s ease;
+    "
+>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Список элементов</h5>
+        <button id="closeSidebar" class="btn btn-sm btn-outline-secondary">
+            &times;
+        </button>
+    </div>
+    <!-- <div class="form-group">
+        <label for="filterSelect"><small>Ф</small></label> -->
+        <select id="filterSelect" class="custom-select form-control form-control mb-3">
+            <option value="my" disabled>мои актуальные</option>
+            <option value="new" selected>новые рекомендованные</option>
+            <option value="popular" disabled>поулярные</option>
+        </select>
+      <!-- </div> -->
+    <div id="loadingIndicator">Загрузка...</div>
+    <ul id="itemList" class="list-group"></ul>
+</div>
+
+<script>
+    function loadItems() {
+        // const url = "http://geos.icc.ru:6868/services/getRecomendation?user_id=354&curent_service_id=10003056";
+        const url = "http://geos.icc.ru:6868/services/getRecomendation?user_id=354"
+
+        $("#itemList").empty();
+        $("#loadingIndicator").show();
+
+        $.ajax({
+            url: url,
+            method: "GET",
+            dataType: "json",
+            success: function (response) {
+                $("#loadingIndicator").hide();
+                console.log("Ответ сервера:", response);
+                // Подстроимся под структуру ответа
+                const reqSercives = response
+                    .map((id) => `${id}-PropertyIsEqualTo`)
+                    .join(";");
+
+                $.ajax({
+                    url: "/dataset/list?f=185",
+                    method: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify({
+                        f_id: reqSercives,
+                    }),
+                    success: function (response) {
+                        const items = JSON.parse(response).aaData.map(service => ({id: service.id, name: service.name})) || [];
+                        renderItems(items);
+                    },
+                    error: function (xhr, status, error) {
+                        $("#loadingIndicator").hide();
+                        $("#itemList").html(`
+                    <li class="list-group-item text-danger">Ошибка загрузки: ${error}</li>
+                `);
+                    },
+                });
+            },
+            error: function (xhr, status, error) {
+                $("#loadingIndicator").hide();
+                $("#itemList").html(`
+                <li class="list-group-item text-danger">Ошибка загрузки: ${error}</li>
+            `);
+            },
+        });
+    }
+</script>
+<script>
+    const mockData = [
+        { id: 1, name: "Элемент 1" },
+        { id: 2, name: "Элемент 2" },
+        { id: 3, name: "Элемент 3" },
+        { id: 4, name: "Элемент 4" },
+    ];
+
+    function renderItems(items) {
+        const $list = $("#itemList");
+        $list.empty();
+
+        items.forEach((item) => {
+            const $li = $(`
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="truncate" title="${item.name}">${item.name}</span>
+                    <button class="btn btn-sm btn-outline-primary" title="Запустить">
+                    <i class="fas fa-play"></i>
+                    </button>
+                </li>
+            `);
+            $list.append($li);
+        });
+    }
+
+    function loadItemsMock() {
+        $("#itemList").empty();
+        $("#loadingIndicator").show();
+
+        // Симуляция загрузки с задержкой
+        setTimeout(() => {
+            $("#loadingIndicator").hide();
+            renderItems(mockData);
+        }, 1000); // 1 секунда имитации "сетевой задержки"
+    }
+
+    function applyFilter() {
+        const selected = $("#filterSelect").val();
+        if (selected === "new") {
+            loadItems()
+        } else {
+            
+        }
+    }
+
+    $(document).ready(function () {
+        $("#closeSidebar").click(function () {
+            $("#sidebar").addClass("hidden");
+        });
+
+        $("#openSidebar").click(function () {
+            $("#sidebar").removeClass("hidden");
+            loadItems(); // Повторная загрузка при открытии
+        });
+        $("#filterSelect").on("change", applyFilter);
+    });
+</script>
