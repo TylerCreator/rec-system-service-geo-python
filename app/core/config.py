@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     API_TIMEOUT: int = 90
     
     # Paths
-    CSV_FILE_PATH: str = "calls.csv"
-    RECOMMENDATIONS_FILE_PATH: str = "recomendations.json"
-    KNN_SCRIPT_PATH: str = "knn.py"
+    CSV_FILE_PATH: str = "app/static/calls.csv"
+    RECOMMENDATIONS_FILE_PATH: str = "app/static/recomendations.json"
+    KNN_SCRIPT_PATH: str = "app/static/knn.py"
     
     @property
     def DATABASE_URL(self) -> str:

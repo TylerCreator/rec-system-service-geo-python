@@ -14,7 +14,7 @@ import time
 
 start = time.time()
 # считываем из базы данных вызовы сервисов
-df_calls = pd.read_csv('calls.csv', sep=';')
+df_calls = pd.read_csv('app/static/calls.csv', sep=';')
 #df_calls = pd.read_csv('CALLS_21_05.csv', sep=';')
 
 
@@ -167,7 +167,7 @@ answer = {}
 for owner_id in owner_unique:
     if ('cookies' not in owner_id):
         answer[owner_id] = get_answer(owner_id, preds).tolist()
-with open('recomendations.json', 'w', encoding='utf-8') as f:
+with open('app/static/recomendations.json', 'w', encoding='utf-8') as f:
     json.dump({"prediction": answer }, f, ensure_ascii=False, indent=4)
 print(json.dumps({"prediction": answer }))
 

@@ -718,8 +718,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         ]
         
         # Save compositions DAG to file
-        import os
-        output_path = os.path.join(os.path.dirname(settings.CSV_FILE_PATH), "compositionsDAG.json")
+        output_path = "app/static/compositionsDAG.json"
         
         print(f"Preparing to save {len(final_compositions)} compositions to file...")
         
