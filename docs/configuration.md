@@ -19,12 +19,12 @@ DB_PORT=5431                  # Если используете Docker с мап
 
 # Учетные данные
 DB_USER=postgres              # Имя пользователя БД
-DB_PASSWORD=postgres123       # Пароль (используйте сильный пароль в production!)
-DB_NAME=rec_system           # Имя базы данных
+DB_PASSWORD=root              # Пароль (используйте сильный пароль в production!)
+DB_NAME=compositions          # Имя базы данных
 ```
 
 **Важно для production:**
-- `postgres123` - пароль для локальной разработки/тестирования
+- `root` - пароль для локальной разработки/тестирования
 - В production используйте сложный пароль (минимум 32 символа)
 - Не храните production пароли в git (`.env` должен быть в `.gitignore`)
 - Используйте разные пароли для разных окружений
@@ -332,6 +332,8 @@ DEBUG=true
 ENABLE_CRON=false
 DB_HOST=localhost
 DB_PORT=5432
+DB_PASSWORD=root
+DB_NAME=compositions
 NODE_LOCAL_PORT=8080
 CRIS_BASE_URL=http://cris.icc.ru
 ```
@@ -343,6 +345,8 @@ DEBUG=false
 ENABLE_CRON=true
 DB_HOST=postgresdb
 DB_PORT=5432
+DB_PASSWORD=root
+DB_NAME=compositions
 NODE_LOCAL_PORT=6868
 CRIS_BASE_URL=http://cris.icc.ru
 SSL_ENABLED=true
@@ -360,13 +364,13 @@ SSL_ENABLED=true
 # Database
 POSTGRESDB_USER=postgres
 POSTGRESDB_ROOT_PASSWORD=<очень_сложный_пароль>  # !!! ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ !!!
-POSTGRESDB_DATABASE=rec_system
+POSTGRESDB_DATABASE=compositions
 
 DB_HOST=postgresdb
 DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=<очень_сложный_пароль>  # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
-DB_NAME=rec_system
+DB_NAME=compositions
 
 # External API
 CRIS_BASE_URL=http://cris.icc.ru
@@ -416,13 +420,13 @@ docker-compose config
 ```bash
 # Database
 POSTGRESDB_USER=postgres
-POSTGRESDB_ROOT_PASSWORD=postgres123
-POSTGRESDB_DATABASE=rec_system
+POSTGRESDB_ROOT_PASSWORD=root
+POSTGRESDB_DATABASE=compositions
 
 # App
 DB_HOST=postgresdb
-DB_PASSWORD=postgres123
-DB_NAME=rec_system
+DB_PASSWORD=root
+DB_NAME=compositions
 ENABLE_CRON=false
 ```
 
@@ -431,15 +435,15 @@ ENABLE_CRON=false
 ```bash
 # Database (для Docker Compose)
 POSTGRESDB_USER=postgres
-POSTGRESDB_ROOT_PASSWORD=postgres123  # Замените в production!
-POSTGRESDB_DATABASE=rec_system
+POSTGRESDB_ROOT_PASSWORD=root  # Замените в production!
+POSTGRESDB_DATABASE=compositions
 
 # Database Connection (для приложения)
 DB_HOST=postgresdb
 DB_PORT=5432
 DB_USER=postgres
-DB_PASSWORD=postgres123  # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
-DB_NAME=rec_system
+DB_PASSWORD=root  # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
+DB_NAME=compositions
 
 # Application
 PORT=8080

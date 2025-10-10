@@ -59,9 +59,9 @@ POSTGRESDB_LOCAL_PORT=5431
 
 # База данных
 POSTGRESDB_USER=postgres
-POSTGRESDB_ROOT_PASSWORD=postgres123        # Для dev/test
+POSTGRESDB_ROOT_PASSWORD=root              # Для dev/test
 # POSTGRESDB_ROOT_PASSWORD=<сильный_пароль>  # Для production
-POSTGRESDB_DATABASE=rec_system
+POSTGRESDB_DATABASE=compositions
 
 # Приложение
 PORT=8080
@@ -456,12 +456,15 @@ DEBUG=false
 
 # Использовать сильные пароли для production
 # Development/Testing:
-POSTGRESDB_ROOT_PASSWORD=postgres123
+POSTGRESDB_ROOT_PASSWORD=root
+DB_PASSWORD=root
 # Production (замените на сильный пароль):
 # POSTGRESDB_ROOT_PASSWORD=<сложный_пароль_минимум_32_символа>
+# DB_PASSWORD=<сложный_пароль_минимум_32_символа>
 
 # Ограничить доступ к БД
 DB_HOST=postgresdb  # не localhost для изоляции в Docker
+DB_NAME=compositions
 ```
 
 ### Rate Limiting (с Nginx)

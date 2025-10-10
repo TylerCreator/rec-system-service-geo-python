@@ -116,17 +116,18 @@ rec-system-services-geo-python/
 ```bash
 # База данных (для Docker Compose)
 POSTGRESDB_USER=postgres
-POSTGRESDB_ROOT_PASSWORD=postgres123    # Для dev/test; замените в production!
-POSTGRESDB_DATABASE=rec_system
+POSTGRESDB_ROOT_PASSWORD=root          # Для dev/test; замените в production!
+POSTGRESDB_DATABASE=compositions
+POSTGRESDB_LOCAL_PORT=5431
 
 # База данных (подключение приложения)
-DB_HOST=localhost                       # localhost для локального запуска
+DB_HOST=localhost                      # localhost для локального запуска
                                        # postgresdb для Docker Compose
-DB_PORT=5431                           # 5431 для локального доступа к Docker
+DB_PORT=5431                          # 5431 для локального доступа к Docker
                                        # 5432 для локального PostgreSQL
 DB_USER=postgres
-DB_PASSWORD=postgres123                # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
-DB_NAME=rec_system
+DB_PASSWORD=root                       # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
+DB_NAME=compositions
 
 # Приложение
 PORT=8080
@@ -143,7 +144,7 @@ RECOMMENDATIONS_FILE_PATH=app/static/recomendations.json
 KNN_SCRIPT_PATH=app/static/knn.py
 ```
 
-> **⚠️ Важно для production:** Замените `postgres123` на сильный пароль (минимум 32 символа) в обоих местах: `POSTGRESDB_ROOT_PASSWORD` и `DB_PASSWORD`!
+> **⚠️ Важно для production:** Замените `root` на сильный пароль (минимум 32 символа) в обоих местах: `POSTGRESDB_ROOT_PASSWORD` и `DB_PASSWORD`!
 
 Подробнее: [docs/configuration.md](docs/configuration.md)
 

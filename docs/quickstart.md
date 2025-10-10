@@ -35,8 +35,8 @@ POSTGRESDB_LOCAL_PORT=5431  # Порт PostgreSQL
 
 # База данных
 POSTGRESDB_USER=postgres
-POSTGRESDB_ROOT_PASSWORD=postgres123
-POSTGRESDB_DATABASE=rec_system
+POSTGRESDB_ROOT_PASSWORD=root
+POSTGRESDB_DATABASE=compositions
 
 # Приложение
 DEBUG=false
@@ -133,10 +133,10 @@ brew install postgresql
 brew services start postgresql
 
 # Создать пользователя и базу данных
-sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'postgres123';"
-sudo -u postgres psql -c "CREATE DATABASE rec_system OWNER postgres;"
+sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'root';"
+sudo -u postgres psql -c "CREATE DATABASE compositions OWNER postgres;"
 # Или если вы уже под пользователем postgres:
-createdb rec_system
+createdb compositions
 ```
 
 ### Шаг 2: Установка Python зависимостей
@@ -168,10 +168,10 @@ nano .env
 ```bash
 # База данных (локальная)
 DB_HOST=localhost
-DB_PORT=5432              # Стандартный порт PostgreSQL
+DB_PORT=5432              # Стандартный порт PostgreSQL (или 5431 если через Docker)
 DB_USER=postgres
-DB_PASSWORD=postgres123
-DB_NAME=rec_system
+DB_PASSWORD=root
+DB_NAME=compositions
 
 # Приложение
 PORT=8080
