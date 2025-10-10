@@ -1,0 +1,20 @@
+{
+  "1": {
+    "input": {
+      "custom_param": "file",
+      "additional_input": "theme_select"
+    },
+    "output": {
+      "custom_output": "file_save"
+    }
+  },
+  "2": {
+    "input": {
+      "data_file": "file"
+    },
+    "output": {
+      "result_file": "file_save"
+    }
+  }
+}
+

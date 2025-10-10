@@ -61,8 +61,26 @@ def categorize_params(params, input_widget_types=None, output_widget_types=None)
 
 
 async def build_service_connection_map(db: AsyncSession) -> Dict[int, Any]:
-    """Build map of service connections (inputs/outputs)"""
+    """
+    Build map of service connections (inputs/outputs)
+    Extended with data from in_and_out.json file if exists
+    """
     print("Building service connection map...")
+    
+    # Загружаем данные из файла перед циклом
+    import os
+    in_and_out_file = "in_and_out.json"
+    file_data = {}
+    
+    if os.path.exists(in_and_out_file):
+        try:
+            print(f"Loading data from {in_and_out_file}...")
+            with open(in_and_out_file, 'r', encoding='utf-8') as f:
+                file_data = json.load(f)
+            print(f"Loaded {len(file_data)} services from file")
+        except Exception as e:
+            print(f"Warning: Could not load {in_and_out_file}: {e}")
+            file_data = {}
     
     result = await db.execute(select(Service))
     services = result.scalars().all()
@@ -84,16 +102,42 @@ async def build_service_connection_map(db: AsyncSession) -> Dict[int, Any]:
             [WIDGET_FILE_SAVE]
         )
         
-        in_and_out[service.id] = {
-            "type": service.type,
-            "name": service.name,
-            "input": input_categorized["internal"],
-            "externalInput": input_categorized["external"],
-            "output": output_categorized["internal"],
-            "externalOutput": output_categorized["external"]
-        }
+        # Проверяем наличие данных для этого сервиса в файле
+        service_id_str = str(service.id)
+        if service_id_str in file_data:
+            # Объединяем данные из БД с данными из файла
+            file_service_data = file_data[service_id_str]
+            
+            # Объединяем input (данные из файла расширяют данные из БД)
+            combined_input = input_categorized["internal"].copy()
+            if "input" in file_service_data:
+                combined_input.update(file_service_data["input"])
+            
+            # Объединяем output (данные из файла расширяют данные из БД)
+            combined_output = output_categorized["internal"].copy()
+            if "output" in file_service_data:
+                combined_output.update(file_service_data["output"])
+            
+            in_and_out[service.id] = {
+                "type": service.type,
+                "name": service.name,
+                "input": combined_input,
+                "externalInput": input_categorized["external"],
+                "output": combined_output,
+                "externalOutput": output_categorized["external"]
+            }
+        else:
+            # Используем только данные из БД
+            in_and_out[service.id] = {
+                "type": service.type,
+                "name": service.name,
+                "input": input_categorized["internal"],
+                "externalInput": input_categorized["external"],
+                "output": output_categorized["internal"],
+                "externalOutput": output_categorized["external"]
+            }
     
-    print("Service connection map built")
+    print(f"Service connection map built: {len(in_and_out)} services")
     return in_and_out
 
 
