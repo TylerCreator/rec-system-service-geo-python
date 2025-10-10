@@ -178,6 +178,9 @@ def normalize_dataset_id(dataset_id, guid_map):
 async def create_compositions(db: AsyncSession, compositions: List[Dict]):
     """Save compositions to database"""
     try:
+        new_count = 0
+        existing_count = 0
+        
         for composition_data in compositions:
             # Check if exists
             result = await db.execute(
@@ -192,9 +195,12 @@ async def create_compositions(db: AsyncSession, compositions: List[Dict]):
                     links=composition_data["links"]
                 )
                 db.add(composition)
+                new_count += 1
+            else:
+                existing_count += 1
         
         await db.commit()
-        print("Compositions successfully saved")
+        print(f"Compositions saved: {new_count} new, {existing_count} already existed")
     except Exception as e:
         print(f"Error saving compositions: {e}")
         await db.rollback()
@@ -423,8 +429,11 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
             # Check if successful with WMS
             is_successful_with_wms = (
                 result_data and
-                result_data.get("status") == "success" and
-                "wms_link" in result_data
+                ((result_data.get("status") == "success" and
+                "wms_link" in result_data) or 
+                (task.mid == 399 and
+                "map" in result_data and
+                task.status == "TASK_SUCCEEDED"))
             )
             
             if is_successful_with_wms:
