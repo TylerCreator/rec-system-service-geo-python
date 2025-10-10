@@ -1,0 +1,16 @@
+{
+    "399": {
+        "input": {
+            "map": "string",
+            "new_layer_wms_link": "string"
+        },
+        "output": {
+            "map": "string"
+        }
+    },
+    "309": {
+        "output": {
+            "wms_link": "string"
+        }
+    }
+}

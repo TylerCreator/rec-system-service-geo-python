@@ -1,0 +1,11 @@
+INFO:     Started server process [39690]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+🌐 Starting HTTP server on port 8080
+🚀 Starting application...
+📅 Current time: 2025-10-10T14:34:11.133897
+✅ Database tables created/verified
+✅ Database initialized
+⏰ Cron job scheduled: Daily at 00:00 Asia/Irkutsk timezone
+INFO:     127.0.0.1:59273 - "GET / HTTP/1.1" 200 OK

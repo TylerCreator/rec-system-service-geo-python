@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_USER: str = "postgres"
-    DB_PASSWORD: str = "postgres"
-    DB_NAME: str = "rec_system"
+    DB_PASSWORD: str = "root"
+    DB_NAME: str = "compositions"
     
     # SSL
     SSL_ENABLED: bool = False
@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 # Global settings instance

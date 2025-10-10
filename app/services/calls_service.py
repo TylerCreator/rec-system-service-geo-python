@@ -3,12 +3,51 @@ Calls service - business logic for service calls
 """
 import csv
 from typing import List, Dict, Any
+from datetime import datetime
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.models.models import Call
 from app.core.config import settings
+
+
+def parse_datetime(date_string):
+    """Parse datetime string to datetime object (timezone-naive for PostgreSQL)"""
+    if not date_string:
+        return None
+    
+    if isinstance(date_string, datetime):
+        # Remove timezone info if present (PostgreSQL expects naive datetime)
+        return date_string.replace(tzinfo=None) if date_string.tzinfo else date_string
+    
+    try:
+        # Try parsing ISO format: '2025-10-10 12:52:38'
+        return datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
+    except (ValueError, TypeError):
+        try:
+            # Try parsing with microseconds
+            return datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S.%f')
+        except (ValueError, TypeError):
+            try:
+                # Try ISO format with T and timezone
+                dt = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+                # Remove timezone info for PostgreSQL
+                return dt.replace(tzinfo=None)
+            except (ValueError, TypeError, AttributeError):
+                print(f"Warning: Could not parse datetime: {date_string}")
+                return None
+
+
+def to_string(value):
+    """Convert boolean or other types to string for VARCHAR fields"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 async def get_calls(db: AsyncSession) -> List[Dict[str, Any]]:
@@ -65,20 +104,20 @@ async def incr_calls(db: AsyncSession) -> Dict[str, Any]:
             classname=item.get("classname"),
             console_output=item.get("console_output"),
             created_by=item.get("created_by"),
-            created_on=item.get("created_on"),
+            created_on=parse_datetime(item.get("created_on")),
             edited_by=item.get("edited_by"),
-            edited_on=item.get("edited_on"),
-            end_time=item.get("end_time"),
+            edited_on=parse_datetime(item.get("edited_on")),
+            end_time=parse_datetime(item.get("end_time")),
             error_output=item.get("error_output"),
             input=item.get("input"),
             input_data=item.get("input_data"),
             input_params=item.get("input_params"),
-            is_deleted=item.get("is_deleted"),
+            is_deleted=to_string(item.get("is_deleted")),
             mid=item.get("mid"),
             os_pid=item.get("os_pid"),
             owner=item.get("owner"),
             result=item.get("result"),
-            start_time=item.get("start_time"),
+            start_time=parse_datetime(item.get("start_time")),
             status=item.get("status"),
         )
         db.add(call)
@@ -154,20 +193,20 @@ async def update_calls(db: AsyncSession):
                             classname=item.get("classname"),
                             console_output=item.get("console_output"),
                             created_by=item.get("created_by"),
-                            created_on=item.get("created_on"),
+                            created_on=parse_datetime(item.get("created_on")),
                             edited_by=item.get("edited_by"),
-                            edited_on=item.get("edited_on"),
-                            end_time=item.get("end_time"),
+                            edited_on=parse_datetime(item.get("edited_on")),
+                            end_time=parse_datetime(item.get("end_time")),
                             error_output=item.get("error_output"),
                             input=item.get("input"),
                             input_data=item.get("input_data"),
                             input_params=item.get("input_params"),
-                            is_deleted=item.get("is_deleted"),
+                            is_deleted=to_string(item.get("is_deleted")),
                             mid=item.get("mid"),
                             os_pid=item.get("os_pid"),
                             owner=item.get("owner"),
                             result=item.get("result"),
-                            start_time=item.get("start_time"),
+                            start_time=parse_datetime(item.get("start_time")),
                             status=item.get("status"),
                         )
                         db.add(call)

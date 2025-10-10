@@ -63,13 +63,13 @@ def categorize_params(params, input_widget_types=None, output_widget_types=None)
 async def build_service_connection_map(db: AsyncSession) -> Dict[int, Any]:
     """
     Build map of service connections (inputs/outputs)
-    Extended with data from in_and_out.json file if exists
+    Extended with data from in_and_out_settings.json file if exists
     """
     print("Building service connection map...")
     
     # Загружаем данные из файла перед циклом
     import os
-    in_and_out_file = "in_and_out.json"
+    in_and_out_file = "app/static/in_and_out_settings.json"
     file_data = {}
     
     if os.path.exists(in_and_out_file):
@@ -229,10 +229,12 @@ def add_task_link(links, task_id, source_id, source_param_name, param_name):
         "value": f"{source_param_name}:{param_name}"
     }
     
-    if task_id in links:
-        links[task_id].append(link_data)
+    # Use string key for consistency with build_composition_for_task
+    task_id_str = str(task_id)
+    if task_id_str in links:
+        links[task_id_str].append(link_data)
     else:
-        links[task_id] = [link_data]
+        links[task_id_str] = [link_data]
 
 
 def create_composition_node(task, in_and_out):
@@ -314,15 +316,16 @@ def build_composition_for_task(task, links, tasks, task_id_to_index, in_and_out)
                 
                 stack.append(link["source"])
         
-        # Add reference inputs
+        # Add reference inputs for current node BEFORE adding to nodes
         for link in local_links.values():
-            for params in link["value"]:
-                source_param_name, target_param_name = params.split(':')
-                node["inputs"].append({
-                    "name": target_param_name,
-                    "value": f"ref::{link['source']}::{source_param_name}",
-                    "type": in_and_out.get(link["targetMid"], {}).get("input", {}).get(target_param_name)
-                })
+            if link["target"] == current_task.id:  # Only add inputs for current task
+                for params in link["value"]:
+                    source_param_name, target_param_name = params.split(':')
+                    node["inputs"].append({
+                        "name": target_param_name,
+                        "value": f"ref::{link['source']}::{source_param_name}",
+                        "type": in_and_out.get(link["targetMid"], {}).get("input", {}).get(target_param_name)
+                    })
         
         nodes.append(node)
     
@@ -427,50 +430,56 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
             if is_successful_with_wms:
                 # Process inputs to find links
                 for param_name in service_inputs.keys():
-                    input_value = inputs.get(param_name)
+                    input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
                     
-                    if input_value in file_value_tracker and service_inputs[param_name] != WIDGET_THEME_SELECT:
-                        tracker_info = file_value_tracker[input_value]
-                        add_task_link(
-                            task_links,
-                            task.id,
-                            tracker_info["value"],
-                            tracker_info["name"],
-                            param_name
-                        )
+                    # Skip if input_value is not hashable (dict, list, etc.)
+                    if input_value and isinstance(input_value, (str, int, float, bool, type(None))):
+                        if input_value in file_value_tracker and service_inputs[param_name] != WIDGET_THEME_SELECT:
+                            tracker_info = file_value_tracker[input_value]
+                            add_task_link(
+                                task_links,
+                                task.id,
+                                tracker_info["value"],
+                                tracker_info["name"],
+                                param_name
+                            )
                 
                 # Build composition
                 comp_data = build_composition_for_task(
                     task, task_links, tasks_list, task_id_to_index, in_and_out
                 )
                 
-                if len(comp_data["nodes"]) > 1:
+                nodes_count = len(comp_data["nodes"])
+                if nodes_count > 1:
                     composition = normalize_composition(comp_data["nodes"], comp_data["localLinks"])
                     compositions.append(composition)
             else:
                 # Process intermediate task
                 for param_name in service_inputs.keys():
-                    input_value = inputs.get(param_name)
+                    input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
                     
-                    if input_value in file_value_tracker:
-                        tracker_info = file_value_tracker[input_value]
-                        add_task_link(
-                            task_links,
-                            task.id,
-                            tracker_info["value"],
-                            tracker_info["name"],
-                            param_name
-                        )
-                
-                # Register output files
-                if result_data:
-                    for param_name in service_outputs.keys():
-                        output_value = result_data.get(param_name)
-                        if output_value:
-                            file_value_tracker[output_value] = {
-                                "value": task.id,
-                                "name": param_name
-                            }
+                    # Skip if input_value is not hashable (dict, list, etc.)
+                    if input_value and isinstance(input_value, (str, int, float, bool, type(None))):
+                        if input_value in file_value_tracker:
+                            tracker_info = file_value_tracker[input_value]
+                            add_task_link(
+                                task_links,
+                                task.id,
+                                tracker_info["value"],
+                                tracker_info["name"],
+                                param_name
+                            )
+            
+            # Register output files (for ALL tasks, not just intermediate ones)
+            if result_data and isinstance(result_data, dict):
+                for param_name in service_outputs.keys():
+                    output_value = result_data.get(param_name)
+                    # Track hashable values (matching JS behavior)
+                    if output_value and isinstance(output_value, (str, int, float, bool)):
+                        file_value_tracker[output_value] = {
+                            "value": task.id,
+                            "name": param_name
+                        }
         
         print(f"Created {len(compositions)} compositions")
         
@@ -537,7 +546,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             
             # Process inputs
             for param_name in service_inputs.keys():
-                input_value = inputs.get(param_name)
+                input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
                 if not input_value:
                     continue
                 
@@ -577,7 +586,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             
             # Register output files
             for param_name in service_outputs.keys():
-                output_value = outputs.get(param_name)
+                output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
                 
                 if output_value and service_outputs[param_name] == WIDGET_FILE_SAVE:
                     file_tracker[output_value] = {
@@ -669,25 +678,41 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         # Save compositions DAG to file
         import os
         output_path = os.path.join(os.path.dirname(settings.CSV_FILE_PATH), "compositionsDAG.json")
+        
+        print(f"Preparing to save {len(final_compositions)} compositions to file...")
+        
         with open(output_path, 'w', encoding='utf-8') as f:
             # Convert Call objects to dicts for JSON serialization
             serializable_compositions = []
-            for comp in final_compositions:
-                serializable_comp = {
-                    "nodes": [
-                        {
-                            "id": node.id if hasattr(node, 'id') else node.get("id"),
-                            "mid": node.mid if hasattr(node, 'mid') else None,
-                            "owner": node.owner if hasattr(node, 'owner') else None,
-                            "start_time": node.start_time.isoformat() if hasattr(node, 'start_time') and node.start_time else node.get("start_date")
-                        }
-                        for node in comp["nodes"]
-                    ],
-                    "links": comp["links"]
-                }
-                serializable_compositions.append(serializable_comp)
+            for i, comp in enumerate(final_compositions):
+                try:
+                    print(f"Processing composition {i+1}/{len(final_compositions)}, nodes count: {len(comp['nodes'])}")
+                    
+                    serializable_nodes = []
+                    for j, node in enumerate(comp["nodes"]):
+                        try:
+                            node_dict = {
+                                "id": node.id if hasattr(node, 'id') else (node.get("id") if isinstance(node, dict) else str(node)),
+                                "mid": node.mid if hasattr(node, 'mid') else None,
+                                "owner": node.owner if hasattr(node, 'owner') else None,
+                                "start_time": node.start_time.isoformat() if hasattr(node, 'start_time') and node.start_time else (node.get("start_date") if isinstance(node, dict) else None)
+                            }
+                            serializable_nodes.append(node_dict)
+                        except Exception as e:
+                            print(f"Error processing node {j} in composition {i}: {e}, node type: {type(node)}")
+                            raise
+                    
+                    serializable_comp = {
+                        "nodes": serializable_nodes,
+                        "links": comp["links"]
+                    }
+                    serializable_compositions.append(serializable_comp)
+                except Exception as e:
+                    print(f"Error processing composition {i}: {e}")
+                    raise
             
             json.dump(serializable_compositions, f, indent=2)
+            print(f"Successfully saved compositions to {output_path}")
         
         print(f"Created {len(final_compositions)} final compositions")
         

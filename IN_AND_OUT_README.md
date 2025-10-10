@@ -1,8 +1,8 @@
-# in_and_out.json - Расширение конфигурации сервисов
+# in_and_out_settings.json - Расширение конфигурации сервисов
 
 ## Описание
 
-Файл `in_and_out.json` позволяет вручную расширять или переопределять конфигурацию входов и выходов сервисов, которая автоматически определяется из базы данных.
+Файл `in_and_out_settings.json` (расположен в `app/static/in_and_out_settings.json`) позволяет вручную расширять или переопределять конфигурацию входов и выходов сервисов, которая автоматически определяется из базы данных.
 
 ## Как работает
 
@@ -15,7 +15,7 @@
 
 ### 2. Расширение из файла
 
-Если существует файл `in_and_out.json`:
+Если существует файл `app/static/in_and_out_settings.json`:
 1. **Перед циклом:** Файл загружается в словарь `file_data`
 2. **Во время цикла:** Для каждого сервиса проверяется наличие данных в файле
 3. **Объединение:** Словари `input` и `output` объединяются с данными из файла
@@ -56,7 +56,7 @@ if "output" in file_data[service_id]:
 
 ## Пример использования
 
-### in_and_out.json:
+### app/static/in_and_out_settings.json:
 
 ```json
 {
@@ -132,16 +132,16 @@ input: {a: "file"} + input: {a: "theme_select"} = input: {a: "theme_select"}
 
 ```bash
 # Создать пустой файл
-echo '{}' > in_and_out.json
+echo '{}' > app/static/in_and_out_settings.json
 
 # Отредактировать
-nano in_and_out.json
+nano app/static/in_and_out_settings.json
 ```
 
 ### Из примера:
 
 ```bash
-cp in_and_out.example.json in_and_out.json
+cp in_and_out_settings.example.json app/static/in_and_out_settings.json
 # Отредактировать под ваши нужды
 ```
 
@@ -157,7 +157,7 @@ docker-compose restart app
 docker-compose logs -f app | grep "Loading data from"
 
 # Должно появиться:
-# Loading data from in_and_out.json...
+# Loading data from app/static/in_and_out_settings.json...
 # Loaded X services from file
 ```
 
@@ -167,14 +167,14 @@ docker-compose logs -f app | grep "Loading data from"
 
 ```bash
 # Проверить синтаксис JSON
-python -m json.tool in_and_out.json
+python -m json.tool app/static/in_and_out_settings.json
 
 # Проверить права доступа
-ls -la in_and_out.json
+ls -la app/static/in_and_out_settings.json
 
 # Проверить что файл в правильной директории
 pwd
-ls -la in_and_out.json
+ls -la app/static/in_and_out_settings.json
 ```
 
 ## Примеры

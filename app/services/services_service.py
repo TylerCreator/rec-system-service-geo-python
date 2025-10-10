@@ -14,6 +14,44 @@ from app.models.models import Service, Call, User, UserService, Dataset
 from app.core.config import settings
 
 
+def parse_datetime(date_string):
+    """Parse datetime string to datetime object (timezone-naive for PostgreSQL)"""
+    if not date_string:
+        return None
+    
+    if isinstance(date_string, datetime):
+        # Remove timezone info if present (PostgreSQL expects naive datetime)
+        return date_string.replace(tzinfo=None) if date_string.tzinfo else date_string
+    
+    try:
+        # Try parsing ISO format: '2025-10-10 12:52:38'
+        return datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
+    except (ValueError, TypeError):
+        try:
+            # Try parsing with microseconds
+            return datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S.%f')
+        except (ValueError, TypeError):
+            try:
+                # Try ISO format with T and timezone
+                dt = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+                # Remove timezone info for PostgreSQL
+                return dt.replace(tzinfo=None)
+            except (ValueError, TypeError, AttributeError):
+                print(f"Warning: Could not parse datetime: {date_string}")
+                return None
+
+
+def to_string(value):
+    """Convert boolean or other types to string for VARCHAR fields"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 async def get_services(
     db: AsyncSession,
     user: Optional[str] = None,
@@ -116,11 +154,11 @@ async def update_services(db: AsyncSession):
                         output_params=item.get("output_params"),
                         wms_link=item.get("wms_link"),
                         wms_layer_name=item.get("wms_layer_name"),
-                        is_deleted=item.get("is_deleted"),
+                        is_deleted=to_string(item.get("is_deleted")),
                         created_by=item.get("created_by"),
                         edited_by=item.get("edited_by"),
-                        edited_on=item.get("edited_on"),
-                        created_on=item.get("created_on"),
+                        edited_on=parse_datetime(item.get("edited_on")),
+                        created_on=parse_datetime(item.get("created_on")),
                         classname=item.get("classname"),
                     )
                     db.add(service)
