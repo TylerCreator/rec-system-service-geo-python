@@ -24,8 +24,9 @@ DB_NAME=rec_system           # Имя базы данных
 ```
 
 **Важно для production:**
-- Используйте сложный пароль (минимум 32 символа)
-- Не храните пароли в git (`.env` должен быть в `.gitignore`)
+- `postgres123` - пароль для локальной разработки/тестирования
+- В production используйте сложный пароль (минимум 32 символа)
+- Не храните production пароли в git (`.env` должен быть в `.gitignore`)
 - Используйте разные пароли для разных окружений
 
 ### Приложение
@@ -350,14 +351,25 @@ SSL_ENABLED=true
 ### Production (.env.production)
 
 ```bash
+# Application
 DEBUG=false
 ENABLE_CRON=true
+NODE_LOCAL_PORT=6868
+SSL_ENABLED=true
+
+# Database
+POSTGRESDB_USER=postgres
+POSTGRESDB_ROOT_PASSWORD=<очень_сложный_пароль>  # !!! ОБЯЗАТЕЛЬНО ЗАМЕНИТЕ !!!
+POSTGRESDB_DATABASE=rec_system
+
 DB_HOST=postgresdb
 DB_PORT=5432
-NODE_LOCAL_PORT=6868
+DB_USER=postgres
+DB_PASSWORD=<очень_сложный_пароль>  # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
+DB_NAME=rec_system
+
+# External API
 CRIS_BASE_URL=http://cris.icc.ru
-SSL_ENABLED=true
-POSTGRESDB_ROOT_PASSWORD=<очень_сложный_пароль>
 ```
 
 ### Использование
@@ -399,9 +411,15 @@ docker-compose config
 
 ## Примеры конфигураций
 
-### Минимальная конфигурация
+### Минимальная конфигурация (для локальной разработки)
 
 ```bash
+# Database
+POSTGRESDB_USER=postgres
+POSTGRESDB_ROOT_PASSWORD=postgres123
+POSTGRESDB_DATABASE=rec_system
+
+# App
 DB_HOST=postgresdb
 DB_PASSWORD=postgres123
 DB_NAME=rec_system
@@ -411,11 +429,16 @@ ENABLE_CRON=false
 ### Рекомендуемая конфигурация
 
 ```bash
-# Database
+# Database (для Docker Compose)
+POSTGRESDB_USER=postgres
+POSTGRESDB_ROOT_PASSWORD=postgres123  # Замените в production!
+POSTGRESDB_DATABASE=rec_system
+
+# Database Connection (для приложения)
 DB_HOST=postgresdb
 DB_PORT=5432
 DB_USER=postgres
-DB_PASSWORD=<сильный_пароль>
+DB_PASSWORD=postgres123  # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
 DB_NAME=rec_system
 
 # Application

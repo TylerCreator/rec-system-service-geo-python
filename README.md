@@ -114,11 +114,18 @@ rec-system-services-geo-python/
 Основные переменные окружения в `.env`:
 
 ```bash
-# База данных
-DB_HOST=localhost
-DB_PORT=5431
+# База данных (для Docker Compose)
+POSTGRESDB_USER=postgres
+POSTGRESDB_ROOT_PASSWORD=postgres123    # Для dev/test; замените в production!
+POSTGRESDB_DATABASE=rec_system
+
+# База данных (подключение приложения)
+DB_HOST=localhost                       # localhost для локального запуска
+                                       # postgresdb для Docker Compose
+DB_PORT=5431                           # 5431 для локального доступа к Docker
+                                       # 5432 для локального PostgreSQL
 DB_USER=postgres
-DB_PASSWORD=postgres123
+DB_PASSWORD=postgres123                # Должен совпадать с POSTGRESDB_ROOT_PASSWORD
 DB_NAME=rec_system
 
 # Приложение
@@ -135,6 +142,8 @@ CSV_FILE_PATH=app/static/calls.csv
 RECOMMENDATIONS_FILE_PATH=app/static/recomendations.json
 KNN_SCRIPT_PATH=app/static/knn.py
 ```
+
+> **⚠️ Важно для production:** Замените `postgres123` на сильный пароль (минимум 32 символа) в обоих местах: `POSTGRESDB_ROOT_PASSWORD` и `DB_PASSWORD`!
 
 Подробнее: [docs/configuration.md](docs/configuration.md)
 

@@ -132,7 +132,10 @@ sudo apt install postgresql postgresql-contrib
 brew install postgresql
 brew services start postgresql
 
-# Создать базу данных
+# Создать пользователя и базу данных
+sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'postgres123';"
+sudo -u postgres psql -c "CREATE DATABASE rec_system OWNER postgres;"
+# Или если вы уже под пользователем postgres:
 createdb rec_system
 ```
 
