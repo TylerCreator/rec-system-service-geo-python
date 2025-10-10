@@ -431,10 +431,15 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
                 # Process inputs to find links
                 for param_name in service_inputs.keys():
                     input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
+                    widget_type = service_inputs[param_name]
+                    
+                    # For 'edit' widget type, convert value to string
+                    if widget_type == 'edit' and input_value is not None:
+                        input_value = str(input_value)
                     
                     # Skip if input_value is not hashable (dict, list, etc.)
                     if input_value and isinstance(input_value, (str, int, float, bool, type(None))):
-                        if input_value in file_value_tracker and service_inputs[param_name] != WIDGET_THEME_SELECT:
+                        if input_value in file_value_tracker and widget_type != WIDGET_THEME_SELECT:
                             tracker_info = file_value_tracker[input_value]
                             add_task_link(
                                 task_links,
@@ -457,10 +462,15 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
                 # Process intermediate task
                 for param_name in service_inputs.keys():
                     input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
+                    widget_type = service_inputs[param_name]
+                    
+                    # For 'edit' widget type, convert value to string
+                    if widget_type == 'edit' and input_value is not None:
+                        input_value = str(input_value)
                     
                     # Skip if input_value is not hashable (dict, list, etc.)
                     if input_value and isinstance(input_value, (str, int, float, bool, type(None))):
-                        if input_value in file_value_tracker:
+                        if input_value in file_value_tracker and widget_type != WIDGET_THEME_SELECT:
                             tracker_info = file_value_tracker[input_value]
                             add_task_link(
                                 task_links,
@@ -474,8 +484,17 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
             if result_data and isinstance(result_data, dict):
                 for param_name in service_outputs.keys():
                     output_value = result_data.get(param_name)
-                    # Track hashable values (matching JS behavior)
-                    if output_value and isinstance(output_value, (str, int, float, bool)):
+                    widget_type = service_outputs[param_name]
+                    
+                    # For 'edit' widget type, convert value to string and track
+                    if widget_type == 'edit' and output_value is not None:
+                        output_value = str(output_value)
+                        file_value_tracker[output_value] = {
+                            "value": task.id,
+                            "name": param_name
+                        }
+                    # Track hashable values for other widget types (matching JS behavior)
+                    elif output_value and isinstance(output_value, (str, int, float, bool)):
                         file_value_tracker[output_value] = {
                             "value": task.id,
                             "name": param_name
@@ -571,8 +590,12 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
                         service_dataset_edges[normalized_id][call.mid][call.owner] += 1
                         service_dataset_edges[normalized_id][call.mid]["total"] += 1
                         
-                elif widget_type == WIDGET_FILE:
-                    # File connection
+                elif widget_type == WIDGET_FILE or widget_type == 'edit':
+                    # File connection or edit widget
+                    # For 'edit' widget type, convert value to string
+                    if widget_type == 'edit':
+                        input_value = str(input_value)
+                    
                     file_info = file_tracker.get(input_value)
                     if file_info and file_info.get("source_call_id") and file_info.get("source_param_name"):
                         if call.id not in call_edges:
@@ -587,8 +610,18 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             # Register output files
             for param_name in service_outputs.keys():
                 output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
+                widget_type = service_outputs[param_name]
                 
-                if output_value and service_outputs[param_name] == WIDGET_FILE_SAVE:
+                # For 'edit' widget type, convert value to string and track
+                if widget_type == 'edit' and output_value is not None:
+                    output_value = str(output_value)
+                    file_tracker[output_value] = {
+                        "source_call_id": call.id,
+                        "source_service_id": call.mid,
+                        "source_param_name": param_name
+                    }
+                # Track file_save widget types
+                elif output_value and widget_type == WIDGET_FILE_SAVE:
                     file_tracker[output_value] = {
                         "source_call_id": call.id,
                         "source_service_id": call.mid,

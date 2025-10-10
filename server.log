@@ -9,3 +9,11 @@ INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
 ✅ Database initialized
 ⏰ Cron job scheduled: Daily at 00:00 Asia/Irkutsk timezone
 INFO:     127.0.0.1:59273 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50933 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50933 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [39690]
+🛑 Shutting down application...
+⏰ Scheduler stopped

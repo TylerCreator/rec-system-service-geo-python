@@ -1,16 +1,16 @@
 {
     "399": {
         "input": {
-            "map": "string",
-            "new_layer_wms_link": "string"
+            "map": "edit",
+            "new_layer_wms_link": "edit"
         },
         "output": {
-            "map": "string"
+            "map": "edit"
         }
     },
     "309": {
         "output": {
-            "wms_link": "string"
+            "wms_link": "edit"
         }
     }
 }
