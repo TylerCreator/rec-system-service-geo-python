@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     RECOMMENDATIONS_FILE_PATH: str = "app/static/recomendations.json"
     KNN_SCRIPT_PATH: str = "app/static/knn.py"
     
+    # Recommendations
+    RECOMMENDATION_CACHE_TTL: int = 3600  # 1 hour
+    RECOMMENDATION_MODEL_REFRESH_INTERVAL: int = 86400  # 24 hours
+    RECOMMENDATION_DEFAULT_ALGORITHM: str = "knn"
+    RECOMMENDATION_FALLBACK_ALGORITHM: str = "popularity"
+    RECOMMENDATION_MIN_USER_CALLS: int = 3  # Minimum calls for KNN
+    KNN_N_NEIGHBORS: int = 4
+    KNN_METRIC: str = "cosine"
+    
     @property
     def DATABASE_URL(self) -> str:
         """Construct database URL"""

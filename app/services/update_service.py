@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Call, Service, User, UserService
 from app.core.database import AsyncSessionLocal
 from app.core.config import settings
-from app.services import calls_service, services_service, datasets_service, compositions_service
+from app.services import calls_service, services_service, datasets_service, compositions_service, recommendations_service
 
 
 async def update_all(db: AsyncSession = None) -> List[str]:
@@ -71,6 +71,18 @@ async def _update_all_impl(db: AsyncSession) -> List[str]:
         except Exception as e:
             print(f"Error recovering compositions: {e}")
             results.append(f"❌ Compositions recovery failed: {str(e)}")
+        
+        # 5. Refresh recommendation models (new engine)
+        try:
+            print("Step 5: Refreshing recommendation models...")
+            refresh_result = await recommendations_service.refresh_recommendations(db)
+            if refresh_result.get("success"):
+                results.append("✅ Recommendation models refreshed successfully")
+            else:
+                results.append(f"⚠️ Recommendation models refresh: {refresh_result.get('message')}")
+        except Exception as e:
+            print(f"Error refreshing recommendation models: {e}")
+            results.append(f"❌ Recommendation models refresh failed: {str(e)}")
         
         print("UpdateAll process completed")
         return results
@@ -343,19 +355,34 @@ async def run_full_update() -> Dict[str, Any]:
                 results.append(f"❌ updateStatics: FAILED - {str(e)}")
                 print(f"❌ updateStatics failed: {e}")
         
-        # 4. Update recommendations (outside DB session)
-        print("🤖 Step 4: Updating recommendations...")
+        # 4. Update recommendations - OLD (legacy KNN script)
+        print("🤖 Step 4: Updating recommendations (legacy)...")
         try:
             rec_result = await update_recomendations()
             if rec_result.get("success"):
-                results.append("✅ updateRecomendations: SUCCESS")
-                print("✅ updateRecomendations completed successfully")
+                results.append("✅ updateRecomendations (legacy): SUCCESS")
+                print("✅ updateRecomendations (legacy) completed successfully")
             else:
-                results.append(f"❌ updateRecomendations: FAILED - {rec_result.get('message')}")
-                print(f"❌ updateRecomendations failed")
+                results.append(f"❌ updateRecomendations (legacy): FAILED - {rec_result.get('message')}")
+                print(f"❌ updateRecomendations (legacy) failed")
         except Exception as e:
-            results.append(f"❌ updateRecomendations: FAILED - {str(e)}")
-            print(f"❌ updateRecomendations failed: {e}")
+            results.append(f"❌ updateRecomendations (legacy): FAILED - {str(e)}")
+            print(f"❌ updateRecomendations (legacy) failed: {e}")
+        
+        # 5. Refresh recommendation models - NEW (v2 engine)
+        print("🚀 Step 5: Refreshing recommendation models (v2)...")
+        try:
+            async with AsyncSessionLocal() as db_refresh:
+                refresh_result = await recommendations_service.refresh_recommendations(db_refresh)
+                if refresh_result.get("success"):
+                    results.append("✅ refreshModels (v2): SUCCESS")
+                    print("✅ refreshModels (v2) completed successfully")
+                else:
+                    results.append(f"❌ refreshModels (v2): FAILED - {refresh_result.get('message')}")
+                    print(f"❌ refreshModels (v2) failed")
+        except Exception as e:
+            results.append(f"❌ refreshModels (v2): FAILED - {str(e)}")
+            print(f"❌ refreshModels (v2) failed: {e}")
         
     except Exception as critical_error:
         print(f"💥 Critical error in full update: {critical_error}")

@@ -167,7 +167,7 @@ answer = {}
 for owner_id in owner_unique:
     if ('cookies' not in owner_id):
         answer[owner_id] = get_answer(owner_id, preds).tolist()
-with open('app/static/recomendations.json', 'w', encoding='utf-8') as f:
+with open('app/static/recomendations_knn.json', 'w', encoding='utf-8') as f:
     json.dump({"prediction": answer }, f, ensure_ascii=False, indent=4)
 print(json.dumps({"prediction": answer }))
 

@@ -13,7 +13,14 @@ router = APIRouter()
 @router.get("/all")
 async def update_all(db: AsyncSession = Depends(get_db)):
     """
-    Update all data (calls, datasets, services, compositions)
+    Update all data (calls, datasets, services, compositions, recommendations)
+    
+    Steps:
+    1. Update calls from external API
+    2. Update datasets from external API
+    3. Update services from external API
+    4. Recover compositions from call history
+    5. Refresh recommendation models (v2 engine)
     """
     result = await update_service.update_all(db)
     return {
@@ -51,6 +58,13 @@ async def run_full_update(db: AsyncSession = Depends(get_db)):
     """
     Full system update (for cron job and manual trigger)
     Runs all update operations in sequence
+    
+    Steps:
+    1. Update all data (calls, datasets, services, compositions)
+    2. Dump CSV file with latest calls
+    3. Update user-service statistics
+    4. Update recommendations (legacy KNN script for backward compatibility)
+    5. Refresh recommendation models (v2 engine with cache)
     """
     result = await update_service.run_full_update()
     return result

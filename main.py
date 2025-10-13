@@ -38,6 +38,20 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("✅ Database initialized")
     
+    # Initialize recommendation engine
+    try:
+        from app.core.database import get_db
+        from app.services.recommendations_service import initialize_engine
+        
+        # Get DB session for initialization
+        async for db in get_db():
+            await initialize_engine(db)
+            print("✅ Recommendation engine initialized")
+            break
+    except Exception as e:
+        print(f"⚠️  Failed to initialize recommendation engine: {e}")
+        print("   Engine will initialize on first request")
+    
     # Setup cron job for daily updates
     if settings.ENABLE_CRON:
         from app.services.update_service import run_full_update
