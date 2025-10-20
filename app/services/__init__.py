@@ -7,7 +7,8 @@ from . import (
     datasets_service,
     services_service,
     update_service,
-    recommendations_service
+    recommendations_service,
+    sequential_recommendations_service
 )
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "datasets_service",
     "services_service",
     "update_service",
-    "recommendations_service"
+    "recommendations_service",
+    "sequential_recommendations_service"
 ]

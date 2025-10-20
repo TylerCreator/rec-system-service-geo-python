@@ -65,6 +65,7 @@ async def run_full_update(db: AsyncSession = Depends(get_db)):
     3. Update user-service statistics
     4. Update recommendations (legacy KNN script for backward compatibility)
     5. Refresh recommendation models (v2 engine with cache)
+    6. Train sequential DAGNN model (workflow predictions)
     """
     result = await update_service.run_full_update()
     return result

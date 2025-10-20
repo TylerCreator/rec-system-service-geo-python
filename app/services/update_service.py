@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Call, Service, User, UserService
 from app.core.database import AsyncSessionLocal
 from app.core.config import settings
-from app.services import calls_service, services_service, datasets_service, compositions_service, recommendations_service
+from app.services import calls_service, services_service, datasets_service, compositions_service, recommendations_service, sequential_recommendations_service
 
 
 async def update_all(db: AsyncSession = None) -> List[str]:
@@ -383,6 +383,21 @@ async def run_full_update() -> Dict[str, Any]:
         except Exception as e:
             results.append(f"❌ refreshModels (v2): FAILED - {str(e)}")
             print(f"❌ refreshModels (v2) failed: {e}")
+        
+        # 6. Train sequential DAGNN model - NEW
+        print("🔮 Step 6: Training sequential DAGNN model...")
+        try:
+            async with AsyncSessionLocal() as db_seq:
+                seq_result = await sequential_recommendations_service.train_sequential_model(db_seq)
+                if seq_result.get("success"):
+                    results.append("✅ trainSequentialDAGNN: SUCCESS")
+                    print("✅ trainSequentialDAGNN completed successfully")
+                else:
+                    results.append(f"⚠️ trainSequentialDAGNN: {seq_result.get('message')}")
+                    print(f"⚠️ trainSequentialDAGNN: {seq_result.get('message')}")
+        except Exception as e:
+            results.append(f"❌ trainSequentialDAGNN: FAILED - {str(e)}")
+            print(f"❌ trainSequentialDAGNN failed: {e}")
         
     except Exception as critical_error:
         print(f"💥 Critical error in full update: {critical_error}")

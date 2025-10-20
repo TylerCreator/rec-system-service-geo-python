@@ -15,7 +15,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
 from app.core.database import engine, init_db
-from app.routers import calls, services, datasets, compositions, update
+from app.routers import calls, services, datasets, compositions, update, sequential
 
 # Import models to ensure they're registered with SQLAlchemy
 from app.models import models
@@ -42,11 +42,22 @@ async def lifespan(app: FastAPI):
     try:
         from app.core.database import get_db
         from app.services.recommendations_service import initialize_engine
+        from app.services.sequential_recommendations_service import initialize_sequential_engine
         
         # Get DB session for initialization
         async for db in get_db():
+            # Initialize main recommendation engine
             await initialize_engine(db)
             print("✅ Recommendation engine initialized")
+            
+            # Initialize sequential engine (loads model if available)
+            try:
+                await initialize_sequential_engine(db)
+                print("✅ Sequential DAGNN engine initialized")
+            except Exception as seq_err:
+                print(f"⚠️  Sequential engine: {seq_err}")
+                print("   Run POST /sequential/train to train the model")
+            
             break
     except Exception as e:
         print(f"⚠️  Failed to initialize recommendation engine: {e}")
@@ -130,6 +141,7 @@ app.include_router(services.router, prefix="/services", tags=["services"])
 app.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
 app.include_router(compositions.router, prefix="/compositions", tags=["compositions"])
 app.include_router(update.router, prefix="/update", tags=["update"])
+app.include_router(sequential.router, prefix="/sequential", tags=["sequential-recommendations"])
 
 
 # 404 handler
