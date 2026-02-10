@@ -373,38 +373,44 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             for param_name, input_value in input_items:
                 if input_value is None:
                     continue
-                
-                widget_type = service_inputs[param_name]
-                
-                if widget_type == WIDGET_THEME_SELECT:
-                    # Dataset connection
-                    parsed_input = safe_json_parse(input_value, input_value) if isinstance(input_value, str) else input_value
-                    
-                    if isinstance(parsed_input, dict) and "dataset_id" in parsed_input:
-                        normalized_id = normalize_dataset_id(parsed_input["dataset_id"], guid_map)
-                        dataset_links[call.id] = f"{normalized_id}:{param_name}"
-                        
-                        # Update service-dataset edges
-                        if normalized_id not in service_dataset_edges:
-                            service_dataset_edges[normalized_id] = {}
-                        if call.mid not in service_dataset_edges[normalized_id]:
-                            service_dataset_edges[normalized_id][call.mid] = {"total": 0}
-                        if call.owner not in service_dataset_edges[normalized_id][call.mid]:
-                            service_dataset_edges[normalized_id][call.mid][call.owner] = 0
-                        
-                        service_dataset_edges[normalized_id][call.mid][call.owner] += 1
-                        service_dataset_edges[normalized_id][call.mid]["total"] += 1
-                        
-                elif widget_type == WIDGET_FILE or widget_type == WIDGET_EDIT:
-                    # File connection or edit widget
-                    input_key = (
-                        _normalize_link_value(input_value)
-                        if widget_type == WIDGET_EDIT
-                        else input_value
-                    )
-                    if not (input_key and is_hashable(input_key)):
+                dataset_ids = _extract_dataset_ids_from_value(input_value)
+                for raw_dataset_id in dataset_ids:
+                    try:
+                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
+                    except Exception:
                         continue
-                    file_info = file_tracker.get(input_key)
+
+                    dataset_links.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
+
+                    # Update service-dataset edges stats
+                    if normalized_id not in service_dataset_edges:
+                        service_dataset_edges[normalized_id] = {}
+                    if call.mid not in service_dataset_edges[normalized_id]:
+                        service_dataset_edges[normalized_id][call.mid] = {"total": 0}
+                    if call.owner not in service_dataset_edges[normalized_id][call.mid]:
+                        service_dataset_edges[normalized_id][call.mid][call.owner] = 0
+
+                    service_dataset_edges[normalized_id][call.mid][call.owner] += 1
+                    service_dataset_edges[normalized_id][call.mid]["total"] += 1
+
+            # Fingerprint linking: scan ALL input keys (configured keys may not match real log fields)
+            all_input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
+            for param_name in all_input_keys:
+                input_value = inputs.get(param_name)
+                if input_value is None:
+                    continue
+
+                widget_type = service_inputs.get(param_name)
+
+                # File/edit connection: use configured widget types if known; otherwise fingerprint everything
+                should_check_fingerprint = (
+                    widget_type in (WIDGET_FILE, WIDGET_EDIT) or widget_type is None
+                )
+                if should_check_fingerprint:
+                    fp = _fingerprint_value(input_value)
+                    if not fp:
+                        continue
+                    file_info = file_tracker.get(fp)
                     if file_info and file_info.get("source_call_id") and file_info.get("source_param_name"):
                         if call.id not in call_edges:
                             call_edges[call.id] = {}
@@ -419,21 +425,26 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
 
             for param_name in all_output_keys:
                 output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
-                widget_type = service_outputs[param_name]
-                
-                if widget_type == WIDGET_EDIT:
-                    output_key = _normalize_link_value(output_value)
-                    if output_key is None:
+                if output_value is None:
+                    continue
+
+                # Dataset outputs (derived tables)
+                output_dataset_ids = _extract_dataset_ids_from_value(output_value)
+                for raw_dataset_id in output_dataset_ids:
+                    try:
+                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
+                    except Exception:
                         continue
-                    file_tracker[output_key] = {
-                        "source_call_id": call.id,
-                        "source_param_name": param_name
-                    }
-                elif widget_type == WIDGET_FILE and output_value and is_hashable(output_value):
-                    file_tracker[output_value] = {
-                        "source_call_id": call.id,
-                        "source_param_name": param_name
-                    }
+                    dataset_outputs.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
+                    dataset_producers[str(normalized_id)] = call.id
+
+                fp = _fingerprint_value(output_value)
+                if not fp:
+                    continue
+                file_tracker[fp] = {
+                    "source_call_id": call.id,
+                    "source_param_name": param_name
+                }
         
         # Second pass: build compositions
         raw_compositions = {}
