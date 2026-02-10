@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.routers import calls, services, datasets, compositions, update, sequential
+from app.routers import table_compositions
 
 # Import models to ensure they're registered with SQLAlchemy
 from app.models import models
@@ -142,6 +143,7 @@ app.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
 app.include_router(compositions.router, prefix="/compositions", tags=["compositions"])
 app.include_router(update.router, prefix="/update", tags=["update"])
 app.include_router(sequential.router, prefix="/sequential", tags=["sequential-recommendations"])
+app.include_router(table_compositions.router, prefix="/table-compositions", tags=["table-compositions"])
 
 
 # 404 handler
