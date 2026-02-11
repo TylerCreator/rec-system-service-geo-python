@@ -1,9 +1,9 @@
 """
 Table compositions router
-Endpoints for table-centric recovered workflows and substitution recommendations
+Endpoints for table-centric recovered workflows and sequential recommendations
 """
 
-from typing import Optional
+from typing import List
 from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,29 +23,40 @@ async def list_table_compositions(
     List TableCompositions stored in DB.
 
     These are produced by GET /compositions/recoverNew (recover_new),
-    which now persists both Compositions and TableCompositions.
+    which persists both Compositions and TableCompositions.
     """
     return await table_compositions_service.list_table_compositions(db=db, limit=limit, offset=offset)
 
 
-@router.post("/recommend/substitute-table")
-async def recommend_substitute_table(
-    upstream_service_id: int = Body(..., description="Service mid that produced the existing artifact/output"),
-    new_table_id: int = Body(..., description="New table/dataset id to substitute into the workflow"),
-    existing_table_id: Optional[int] = Body(None, description="Optional existing table id already in the workflow"),
-    n: int = Body(5, ge=1, le=20, description="Number of recommendations"),
+@router.post("/predict")
+async def predict_next(
+    table_sequence: List[int] = Body(..., description="Current sequence of table/dataset IDs in the workflow"),
+    n: int = Body(5, ge=1, le=20, description="Number of predictions to return"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Recommend a service chain for the scenario "substitute a new table into an existing workflow".
+    Predict how to continue a table sequence.
 
-    The model is learned from TableCompositions extracted from call logs.
+    Given a sequence of table IDs (e.g. [table_1, table_2]),
+    recommend the next service and/or next table to add to the workflow.
+
+    Learned from TableCompositions extracted by /compositions/recoverNew.
+
+    Example:
+    ```json
+    {
+        "table_sequence": [1003093, 1003086],
+        "n": 5
+    }
+    ```
+
+    Returns predictions ranked by frequency:
+    - next_service_mid: which service to call next
+    - next_table_id: which table to add next
+    - score: how many real compositions support this prediction
     """
-    return await table_compositions_service.recommend_substitute_table(
+    return await table_compositions_service.predict_next(
         db=db,
-        upstream_service_id=upstream_service_id,
-        new_table_id=new_table_id,
-        existing_table_id=existing_table_id,
+        table_sequence=table_sequence,
         n=n,
     )
-
