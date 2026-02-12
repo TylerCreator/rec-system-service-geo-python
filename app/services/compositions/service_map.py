@@ -95,6 +95,38 @@ async def build_service_connection_map(db: AsyncSession) -> Dict[int, Any]:
                 "externalOutput": output_categorized["external"]
             }
     
+    # If Services table is empty (or missing some services), still allow
+    # recovery to work for services defined in app/static/in_and_out_settings.json.
+    # This is critical for local/offline analysis and for "table processing" services like mapcombine (399).
+    for service_id_str, file_service_data in (file_data or {}).items():
+        try:
+            service_id = int(service_id_str)
+        except Exception:
+            continue
+
+        if service_id in in_and_out:
+            continue
+
+        combined_input = {}
+        combined_output = {}
+        if isinstance(file_service_data, dict):
+            if isinstance(file_service_data.get("input"), dict):
+                combined_input.update(file_service_data["input"])
+            if isinstance(file_service_data.get("output"), dict):
+                combined_output.update(file_service_data["output"])
+
+        if not combined_input and not combined_output:
+            continue
+
+        in_and_out[service_id] = {
+            "type": "unknown",
+            "name": f"service_{service_id}_from_file",
+            "input": combined_input,
+            "externalInput": {},
+            "output": combined_output,
+            "externalOutput": {}
+        }
+
     print(f"Service connection map built: {len(in_and_out)} services")
     return in_and_out
 

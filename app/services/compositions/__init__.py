@@ -5,7 +5,15 @@ from .builder import build_composition_for_task, normalize_composition
 from .recovery import recover, recover_new
 from .service_map import build_service_connection_map, build_dataset_guid_map
 from .helpers import create_composition_node, add_task_link, normalize_dataset_id
-from .repository import create_compositions, create_users, fetch_all_compositions, get_composition_stats
+from .repository import (
+    create_compositions,
+    create_users,
+    fetch_all_compositions,
+    get_composition_stats,
+    create_table_compositions,
+    fetch_all_table_compositions,
+)
+from .table_compositions import extract_table_compositions_from_service_compositions
 
 __all__ = [
     'build_composition_for_task',
@@ -21,5 +29,8 @@ __all__ = [
     'create_users',
     'fetch_all_compositions',
     'get_composition_stats',
+    'create_table_compositions',
+    'fetch_all_table_compositions',
+    'extract_table_compositions_from_service_compositions',
 ]
 

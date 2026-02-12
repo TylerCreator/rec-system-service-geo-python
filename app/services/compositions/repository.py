@@ -5,7 +5,7 @@ from typing import Dict, List, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Composition, User
+from app.models.models import Composition, User, TableComposition
 
 
 async def create_compositions(db: AsyncSession, compositions: List[Dict]) -> None:
@@ -71,6 +71,73 @@ async def create_users(db: AsyncSession, users: Dict) -> None:
         print(f"Error creating users: {e}")
         await db.rollback()
 
+
+async def create_table_compositions(db: AsyncSession, table_compositions: List[Dict]) -> None:
+    """
+    Save table compositions to database
+
+    Args:
+        db: Database session
+        table_compositions: List of table composition dictionaries
+    """
+    try:
+        new_count = 0
+        existing_count = 0
+
+        for comp_data in table_compositions:
+            result = await db.execute(
+                select(TableComposition).where(TableComposition.id == comp_data["id"])
+            )
+            existing = result.scalar_one_or_none()
+
+            if not existing:
+                comp = TableComposition(
+                    id=comp_data["id"],
+                    owner=comp_data.get("owner"),
+                    start_time=comp_data.get("start_time"),
+                    end_time=comp_data.get("end_time"),
+                    table_ids=comp_data["table_ids"],
+                    call_ids=comp_data.get("call_ids"),
+                    service_mids=comp_data.get("service_mids"),
+                    join_steps=comp_data.get("join_steps"),
+                    nodes=comp_data["nodes"],
+                    links=comp_data["links"],
+                )
+                db.add(comp)
+                new_count += 1
+            else:
+                existing_count += 1
+
+        await db.commit()
+        print(f"TableCompositions saved: {new_count} new, {existing_count} already existed")
+    except Exception as e:
+        print(f"Error saving TableCompositions: {e}")
+        await db.rollback()
+        raise
+
+
+async def fetch_all_table_compositions(db: AsyncSession) -> List[Dict[str, Any]]:
+    """
+    Get all table compositions from database
+    """
+    result = await db.execute(select(TableComposition))
+    compositions = result.scalars().all()
+
+    return [
+        {
+            "id": comp.id,
+            "owner": comp.owner,
+            "start_time": comp.start_time.isoformat() if comp.start_time else None,
+            "end_time": comp.end_time.isoformat() if comp.end_time else None,
+            "table_ids": comp.table_ids,
+            "call_ids": comp.call_ids,
+            "service_mids": comp.service_mids,
+            "join_steps": comp.join_steps,
+            "nodes": comp.nodes,
+            "links": comp.links,
+        }
+        for comp in compositions
+    ]
 
 async def fetch_all_compositions(db: AsyncSession) -> List[Dict[str, Any]]:
     """

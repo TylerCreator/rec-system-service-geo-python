@@ -8,7 +8,8 @@ from . import (
     services_service,
     update_service,
     recommendations_service,
-    sequential_recommendations_service
+    sequential_recommendations_service,
+    table_compositions_service
 )
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     "services_service",
     "update_service",
     "recommendations_service",
-    "sequential_recommendations_service"
+    "sequential_recommendations_service",
+    "table_compositions_service"
 ]

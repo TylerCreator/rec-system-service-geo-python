@@ -1,14 +1,20 @@
 {
     "399": {
         "input": {
+            "tables": "theme_select",
+            "new_table": "theme_select",
             "map": "edit",
             "new_layer_wms_link": "edit"
         },
         "output": {
+            "tables": "file",
             "map": "edit"
         }
     },
     "309": {
+        "input": {
+            "source": "theme_select"
+        },
         "output": {
             "wms_link": "edit"
         }

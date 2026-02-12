@@ -16,6 +16,55 @@ from .service_map import build_service_connection_map, build_dataset_guid_map
 from .builder import build_composition_for_task, normalize_composition
 from .helpers import add_task_link, normalize_dataset_id
 from .repository import create_compositions, create_users
+from .repository import create_table_compositions
+from .table_compositions import extract_table_compositions_from_service_compositions
+
+
+def _fingerprint_value(value: Any) -> str:
+    """
+    Create a stable, comparable fingerprint for values used to link outputs->inputs.
+    Supports scalars, dicts, and lists (via JSON canonicalization).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _extract_dataset_ids_from_value(value: Any) -> List[Any]:
+    """
+    Recursively extract dataset_id values from nested structures.
+
+    Examples encountered in real logs:
+    - {"theme": {"dataset_id": 3096, ...}}
+    - {"new_table": {"dataset_id": "3086", ...}, "tables": [{"dataset_id": "..."}]}
+    """
+    out: List[Any] = []
+
+    # If JSON-string, attempt to parse
+    if isinstance(value, str):
+        parsed = safe_json_parse(value, None)
+        if parsed is not None and parsed != value:
+            value = parsed
+
+    if isinstance(value, dict):
+        if "dataset_id" in value:
+            out.append(value.get("dataset_id"))
+        for v in value.values():
+            out.extend(_extract_dataset_ids_from_value(v))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(_extract_dataset_ids_from_value(item))
+
+    return out
 
 
 def _is_successful_with_wms(task: Call, result_data: Dict) -> bool:
@@ -215,9 +264,15 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         calls_list = list(calls)
         
         # Initialize data structures
-        dataset_links = {}
+        # call_id -> list of (normalized_dataset_id, param_name) for INPUTS
+        dataset_links: Dict[int, List[str]] = {}
+        # call_id -> list of (normalized_dataset_id, param_name) for OUTPUTS
+        dataset_outputs: Dict[int, List[str]] = {}
+        # dataset_id -> latest producing call_id (only if produced before consumer)
+        dataset_producers: Dict[str, int] = {}
         service_dataset_edges = {}
-        file_tracker = {}
+        # fingerprint -> {source_call_id, source_param_name}
+        file_tracker: Dict[str, Dict[str, Any]] = {}
         call_edges = {}
         call_id_to_index = {call.id: idx for idx, call in enumerate(calls_list)}
         users = {call.owner: True for call in calls_list if call.owner}
@@ -232,77 +287,95 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             inputs = safe_json_parse(call.input, {})
             outputs = safe_json_parse(call.result, {})
             
-            if call.mid not in in_and_out:
-                continue
-            
-            service_inputs = in_and_out[call.mid].get("input", {})
-            service_outputs = in_and_out[call.mid].get("output", {})
-            
-            if not service_inputs or not service_outputs:
-                continue
+            service_inputs = in_and_out.get(call.mid, {}).get("input", {}) if in_and_out else {}
+            service_outputs = in_and_out.get(call.mid, {}).get("output", {}) if in_and_out else {}
             
             # Process inputs
-            for param_name in service_inputs.keys():
-                input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
-                if not input_value:
+            # 1) Always scan ALL inputs for dataset_id (table references)
+            # 2) Use configured input params (if available) to improve fingerprint linking
+            input_items = []
+            if isinstance(inputs, dict):
+                input_items = list(inputs.items())
+
+            configured_keys = list(service_inputs.keys()) if service_inputs else []
+            keys_to_scan = configured_keys if configured_keys else [k for k, _ in input_items]
+
+            # Dataset ids: scan all input values
+            for param_name, input_value in input_items:
+                if input_value is None:
                     continue
-                
-                widget_type = service_inputs[param_name]
-                
-                if widget_type == WIDGET_THEME_SELECT:
-                    # Dataset connection
-                    parsed_input = safe_json_parse(input_value, input_value) if isinstance(input_value, str) else input_value
-                    
-                    if isinstance(parsed_input, dict) and "dataset_id" in parsed_input:
-                        normalized_id = normalize_dataset_id(parsed_input["dataset_id"], guid_map)
-                        dataset_links[call.id] = f"{normalized_id}:{param_name}"
-                        
-                        # Update service-dataset edges
-                        if normalized_id not in service_dataset_edges:
-                            service_dataset_edges[normalized_id] = {}
-                        if call.mid not in service_dataset_edges[normalized_id]:
-                            service_dataset_edges[normalized_id][call.mid] = {"total": 0}
-                        if call.owner not in service_dataset_edges[normalized_id][call.mid]:
-                            service_dataset_edges[normalized_id][call.mid][call.owner] = 0
-                        
-                        service_dataset_edges[normalized_id][call.mid][call.owner] += 1
-                        service_dataset_edges[normalized_id][call.mid]["total"] += 1
-                        
-                elif widget_type == WIDGET_FILE or widget_type == WIDGET_EDIT:
-                    # File connection or edit widget
-                    # For 'edit' widget type, convert value to string
-                    if widget_type == WIDGET_EDIT:
-                        input_value = str(input_value)
-                    
-                    file_info = file_tracker.get(input_value)
+                dataset_ids = _extract_dataset_ids_from_value(input_value)
+                for raw_dataset_id in dataset_ids:
+                    try:
+                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
+                    except Exception:
+                        continue
+
+                    dataset_links.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
+
+                    # Update service-dataset edges stats
+                    if normalized_id not in service_dataset_edges:
+                        service_dataset_edges[normalized_id] = {}
+                    if call.mid not in service_dataset_edges[normalized_id]:
+                        service_dataset_edges[normalized_id][call.mid] = {"total": 0}
+                    if call.owner not in service_dataset_edges[normalized_id][call.mid]:
+                        service_dataset_edges[normalized_id][call.mid][call.owner] = 0
+
+                    service_dataset_edges[normalized_id][call.mid][call.owner] += 1
+                    service_dataset_edges[normalized_id][call.mid]["total"] += 1
+
+            # Fingerprint linking: scan ALL input keys (configured keys may not match real log fields)
+            all_input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
+            for param_name in all_input_keys:
+                input_value = inputs.get(param_name)
+                if input_value is None:
+                    continue
+
+                widget_type = service_inputs.get(param_name)
+
+                # File/edit connection: use configured widget types if known; otherwise fingerprint everything
+                should_check_fingerprint = (
+                    widget_type in (WIDGET_FILE, WIDGET_EDIT) or widget_type is None
+                )
+                if should_check_fingerprint:
+                    fp = _fingerprint_value(input_value)
+                    if not fp:
+                        continue
+                    file_info = file_tracker.get(fp)
                     if file_info and file_info.get("source_call_id") and file_info.get("source_param_name"):
                         if call.id not in call_edges:
                             call_edges[call.id] = {}
                         if file_info["source_call_id"] not in call_edges[call.id]:
                             call_edges[call.id][file_info["source_call_id"]] = []
-                        
                         call_edges[call.id][file_info["source_call_id"]].append(
                             f"{file_info['source_param_name']}:{param_name}"
                         )
             
-            # Register output files
-            for param_name in service_outputs.keys():
+            # Register output values for tracking — scan ALL output keys (configured may not match real log fields)
+            all_output_keys = list(outputs.keys()) if isinstance(outputs, dict) else []
+
+            for param_name in all_output_keys:
                 output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
-                widget_type = service_outputs[param_name]
-                
-                # For 'edit' widget type, convert value to string and track
-                if widget_type == WIDGET_EDIT and output_value is not None:
-                    output_value = str(output_value)
-                    file_tracker[output_value] = {
-                        "source_call_id": call.id,
-                        "source_param_name": param_name
-                    }
-                # Track file values
-                elif widget_type == WIDGET_FILE and output_value:
-                    file_tracker[output_value] = {
-                        "source_call_id": call.id,
-                        "source_param_name": param_name
-                    }
+                if output_value is None:
+                    continue
+
+                # Dataset outputs (derived tables)
+                output_dataset_ids = _extract_dataset_ids_from_value(output_value)
+                for raw_dataset_id in output_dataset_ids:
+                    try:
+                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
+                    except Exception:
+                        continue
+                    dataset_outputs.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
+                    dataset_producers[str(normalized_id)] = call.id
+
+                fp = _fingerprint_value(output_value)
+                if not fp:
+                    continue
+                file_tracker[fp] = {
+                    "source_call_id": call.id,
+                    "source_param_name": param_name
+                }
         
         # Second pass: build compositions
         raw_compositions = {}
@@ -311,44 +384,139 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             if call.status != TASK_SUCCEEDED:
                 continue
             
-            # Dataset connections
+            # Dataset connections (can be multiple per call)
             if call.id in dataset_links:
-                dataset_id_str, param_name = dataset_links[call.id].split(':')
-                
-                dataset_node = {
-                    "id": dataset_id_str,
-                    "start_date": call.start_time.isoformat() if call.start_time else None
-                }
-                
-                dataset_link = {
-                    "source": dataset_id_str,
-                    "target": call.id,
-                    "fields": f"{dataset_id_str}:{param_name}"
-                }
-                
+                nodes = []
+                links = []
+                for entry in dataset_links[call.id]:
+                    try:
+                        dataset_id_str, param_name = entry.split(':', 1)
+                    except Exception:
+                        continue
+                    dataset_node = {
+                        "id": dataset_id_str,
+                        "start_date": call.start_time.isoformat() if call.start_time else None
+                    }
+                    dataset_link = {
+                        "source": dataset_id_str,
+                        "target": call.id,
+                        "fields": f"{dataset_id_str}:{param_name}"
+                    }
+                    nodes.append(dataset_node)
+                    links.append(dataset_link)
+
+                    # If dataset was produced by a prior call, link producer -> dataset
+                    producer_call_id = dataset_producers.get(dataset_id_str)
+                    if producer_call_id and producer_call_id < call.id:
+                        links.append(
+                            {
+                                "source": producer_call_id,
+                                "target": dataset_id_str,
+                                "fields": f"{dataset_id_str}:produced"
+                            }
+                        )
+                        # Ensure producer node is present
+                        producer_call = calls_list[call_id_to_index[producer_call_id]]
+                        nodes.append(producer_call)
+
                 raw_compositions[call.id] = {
-                    "nodes": [dataset_node, call],
-                    "links": [dataset_link]
+                    "nodes": nodes + [call],
+                    "links": links
                 }
+
+            # Dataset outputs (call -> dataset)
+            if call.id in dataset_outputs:
+                nodes = []
+                links = []
+                for entry in dataset_outputs[call.id]:
+                    try:
+                        dataset_id_str, param_name = entry.split(':', 1)
+                    except Exception:
+                        continue
+                    dataset_node = {
+                        "id": dataset_id_str,
+                        "start_date": call.start_time.isoformat() if call.start_time else None
+                    }
+                    dataset_link = {
+                        "source": call.id,
+                        "target": dataset_id_str,
+                        "fields": f"{param_name}:dataset_id"
+                    }
+                    nodes.append(dataset_node)
+                    links.append(dataset_link)
+
+                if call.id in raw_compositions:
+                    raw_compositions[call.id]["nodes"].extend(nodes)
+                    raw_compositions[call.id]["links"].extend(links)
+                else:
+                    raw_compositions[call.id] = {
+                        "nodes": nodes + [call],
+                        "links": links
+                    }
             
             # Call edges
             if call.id in call_edges:
+                # IMPORTANT:
+                # A call may have multiple upstream inputs (multiple source_call_id),
+                # e.g. mapcombine-like operations. We must NOT overwrite the composition per source.
+                # Instead, we merge (union) nodes/links from all upstream branches.
+
+                merged_nodes = []
+                merged_links = []
+
+                # Start from dataset link composition if it exists
+                if call.id in raw_compositions:
+                    merged_nodes.extend(raw_compositions[call.id]["nodes"])
+                    merged_links.extend(raw_compositions[call.id]["links"])
+
+                # Merge all upstream branches
                 for source_call_id, fields in call_edges[call.id].items():
                     link = {"source": source_call_id, "target": call.id, "fields": fields}
-                    
+
                     if source_call_id in raw_compositions:
-                        # Inherit composition
-                        raw_compositions[call.id] = {
-                            "nodes": raw_compositions[source_call_id]["nodes"] + [call],
-                            "links": raw_compositions[source_call_id]["links"] + [link]
-                        }
+                        merged_nodes.extend(raw_compositions[source_call_id]["nodes"])
+                        merged_links.extend(raw_compositions[source_call_id]["links"])
                     else:
-                        # Create new composition
                         source_call = calls_list[call_id_to_index[source_call_id]]
-                        raw_compositions[call.id] = {
-                            "nodes": [source_call, call],
-                            "links": [link]
-                        }
+                        merged_nodes.append(source_call)
+
+                    merged_links.append(link)
+
+                merged_nodes.append(call)
+
+                # Deduplicate nodes while preserving order
+                seen = set()
+                unique_nodes = []
+                for n in merged_nodes:
+                    if hasattr(n, "mid"):
+                        key = ("call", int(n.id))
+                    elif isinstance(n, dict) and "id" in n:
+                        key = ("dataset", str(n["id"]))
+                    else:
+                        key = ("other", str(n))
+
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    unique_nodes.append(n)
+
+                # Deduplicate links (stable JSON-ish signature)
+                seen_links = set()
+                unique_links = []
+                for l in merged_links:
+                    sig = (
+                        str(l.get("source")),
+                        str(l.get("target")),
+                        json.dumps(l.get("fields"), sort_keys=True, ensure_ascii=False)
+                        if isinstance(l.get("fields"), (dict, list))
+                        else str(l.get("fields")),
+                    )
+                    if sig in seen_links:
+                        continue
+                    seen_links.add(sig)
+                    unique_links.append(l)
+
+                raw_compositions[call.id] = {"nodes": unique_nodes, "links": unique_links}
         
         # Extract sequences
         call_sequences = []
@@ -389,38 +557,65 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         
         print(f"Preparing to save {len(final_compositions)} compositions to file...")
         
-        with open(output_path, 'w', encoding='utf-8') as f:
-            # Convert Call objects to dicts for JSON serialization
-            serializable_compositions = []
-            for i, comp in enumerate(final_compositions):
-                try:
-                    print(f"Processing composition {i+1}/{len(final_compositions)}, nodes count: {len(comp['nodes'])}")
-                    
-                    serializable_nodes = []
-                    for j, node in enumerate(comp["nodes"]):
-                        try:
+        # Convert compositions to JSON-serializable format AND assign stable IDs
+        serializable_compositions: List[Dict[str, Any]] = []
+        for i, comp in enumerate(final_compositions):
+            try:
+                print(f"Processing composition {i+1}/{len(final_compositions)}, nodes count: {len(comp['nodes'])}")
+
+                serializable_nodes: List[Dict[str, Any]] = []
+                call_id_chain: List[int] = []
+
+                for j, node in enumerate(comp["nodes"]):
+                    try:
+                        if hasattr(node, "mid"):
+                            # Call object
+                            call_id_chain.append(int(node.id))
                             node_dict = {
-                                "id": node.id if hasattr(node, 'id') else (node.get("id") if isinstance(node, dict) else str(node)),
-                                "mid": node.mid if hasattr(node, 'mid') else None,
-                                "owner": node.owner if hasattr(node, 'owner') else None,
-                                "start_time": node.start_time.isoformat() if hasattr(node, 'start_time') and node.start_time else (node.get("start_date") if isinstance(node, dict) else None)
+                                "id": int(node.id),
+                                "mid": int(node.mid) if node.mid is not None else None,
+                                "owner": node.owner,
+                                "start_time": node.start_time.isoformat() if node.start_time else None,
                             }
-                            serializable_nodes.append(node_dict)
-                        except Exception as e:
-                            print(f"Error processing node {j} in composition {i}: {e}, node type: {type(node)}")
-                            raise
-                    
-                    serializable_comp = {
-                        "nodes": serializable_nodes,
-                        "links": comp["links"]
-                    }
-                    serializable_compositions.append(serializable_comp)
-                except Exception as e:
-                    print(f"Error processing composition {i}: {e}")
-                    raise
-            
+                        else:
+                            # Dataset node dict
+                            node_id = node.get("id") if isinstance(node, dict) else str(node)
+                            node_dict = {
+                                "id": str(node_id),
+                                "mid": None,
+                                "owner": None,
+                                "start_time": node.get("start_date") if isinstance(node, dict) else None,
+                            }
+                        serializable_nodes.append(node_dict)
+                    except Exception as e:
+                        print(f"Error processing node {j} in composition {i}: {e}, node type: {type(node)}")
+                        raise
+
+                comp_id = "_".join(map(str, call_id_chain)) if call_id_chain else None
+                if not comp_id:
+                    # Extremely defensive: skip if we cannot build a stable id
+                    continue
+
+                serializable_comp = {
+                    "id": comp_id,
+                    "nodes": serializable_nodes,
+                    "links": comp["links"],
+                }
+                serializable_compositions.append(serializable_comp)
+            except Exception as e:
+                print(f"Error processing composition {i}: {e}")
+                raise
+
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(serializable_compositions, f, indent=2)
-            print(f"Successfully saved compositions to {output_path}")
+        print(f"Successfully saved compositions to {output_path}")
+
+        # Persist recovered compositions into DB for API access (/compositions/)
+        await create_compositions(db, serializable_compositions)
+
+        # Extract and persist table compositions into separate table for table-centric analytics/recommendations
+        table_compositions = extract_table_compositions_from_service_compositions(serializable_compositions)
+        await create_table_compositions(db, table_compositions)
         
         print(f"Created {len(final_compositions)} final compositions")
         
@@ -428,6 +623,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             "success": True,
             "message": "Advanced composition recovery completed",
             "compositionsCount": len(final_compositions),
+            "tableCompositionsCount": len(table_compositions),
             "serviceSequencesCount": len(longest_service_sequences),
             "servicesCount": len(in_and_out),
             "datasetsCount": len(service_dataset_edges)

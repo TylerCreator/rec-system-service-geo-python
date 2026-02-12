@@ -20,8 +20,24 @@ async def update_datasets(db: AsyncSession):
     url = f"{base_url}?f=100&count_rows=true&iDisplayStart=0&iDisplayLength=1"
     
     async with httpx.AsyncClient(timeout=settings.API_TIMEOUT) as client:
-        response = await client.post(url, json=request_data)
-        response_data = response.json()
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = await client.post(url, json=request_data)
+                response_data = response.json()
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                try:
+                    response = await client.get(url)
+                    response_data = response.json()
+                    last_err = None
+                    break
+                except Exception as e2:
+                    last_err = e2
+        if last_err is not None:
+            raise last_err
     
     total_records = int(response_data.get("iTotalDisplayRecords", 0))
     
@@ -49,8 +65,25 @@ async def update_datasets(db: AsyncSession):
             url = f"{base_url}?f=100&count_rows=true&iDisplayStart={i_display_start}&iDisplayLength={display_length}"
             
             try:
-                response = await client.post(url, json=request_data)
-                data = response.json().get("aaData", [])
+                last_err = None
+                data = None
+                for attempt in range(3):
+                    try:
+                        response = await client.post(url, json=request_data)
+                        data = response.json().get("aaData", [])
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        try:
+                            response = await client.get(url)
+                            data = response.json().get("aaData", [])
+                            last_err = None
+                            break
+                        except Exception as e2:
+                            last_err = e2
+                if last_err is not None:
+                    raise last_err
                 
                 if not data:
                     print("no data")
