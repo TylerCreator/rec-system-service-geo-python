@@ -1,7 +1,7 @@
 """
 User profile models
 """
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -13,8 +13,8 @@ class UserProfile:
     used_services: Set[int] = field(default_factory=set)
     service_frequencies: Dict[int, int] = field(default_factory=dict)
     total_calls: int = 0
-    first_call: datetime | None = None
-    last_call: datetime | None = None
+    first_call: Optional[datetime] = None
+    last_call: Optional[datetime] = None
     favorite_categories: List[str] = field(default_factory=list)
     
     def is_new_user(self, min_calls: int = 3) -> bool:
@@ -41,7 +41,6 @@ class UserProfile:
             "favorite_categories": self.favorite_categories,
             "top_services": self.get_top_services()
         }
-
 
 
 
