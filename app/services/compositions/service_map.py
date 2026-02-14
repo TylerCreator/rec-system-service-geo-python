@@ -94,6 +94,26 @@ async def build_service_connection_map(db: AsyncSession) -> Dict[int, Any]:
                 "output": output_categorized["internal"],
                 "externalOutput": output_categorized["external"]
             }
+
+    # Add services that exist only in file settings (not in Services table).
+    for service_id_str, file_service_data in file_data.items():
+        try:
+            service_id = int(service_id_str)
+        except (TypeError, ValueError):
+            continue
+
+        if service_id in in_and_out:
+            continue
+
+        in_and_out[service_id] = {
+            "type": "unknown",
+            "name": f"service_{service_id}",
+            "input": file_service_data.get("input", {}),
+            "externalInput": {},
+            "output": file_service_data.get("output", {}),
+            "externalOutput": {}
+        }
+        print(f"Added file-only service mapping for service {service_id}")
     
     print(f"Service connection map built: {len(in_and_out)} services")
     return in_and_out
@@ -120,4 +140,3 @@ async def build_dataset_guid_map(db: AsyncSession) -> Dict[str, int]:
             guid_map[dataset.guid] = dataset.id
     
     return guid_map
-

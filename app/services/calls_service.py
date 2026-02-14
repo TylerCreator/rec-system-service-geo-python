@@ -120,10 +120,12 @@ async def update_calls(db: AsyncSession):
     db_count = result.scalar()
     print(f"Database calls count: {db_count}")
     
-    # Sync data in batches
+    # Sync data in batches (delta mode):
+    # stop when the first already existing call id is reached.
     display_length = 500
     i_display_start = 0
     counter = 1
+    inserted_count = 0
     
     async with httpx.AsyncClient(timeout=settings.API_TIMEOUT) as client:
         while i_display_start < total_records:
@@ -140,40 +142,59 @@ async def update_calls(db: AsyncSession):
                     print("no data")
                     break
                 
-                # Process each call
+                batch_ids = [item.get("id") for item in data if item.get("id") is not None]
+                existing_ids = set()
+                if batch_ids:
+                    result = await db.execute(select(Call.id).where(Call.id.in_(batch_ids)))
+                    existing_ids = set(result.scalars().all())
+
+                should_stop = False
+                stop_call_id = None
+                batch_inserted = 0
+
+                # Process each call in API order.
+                # As soon as we meet an existing call, stop delta sync.
                 for item in data:
-                    # Check if call exists
-                    result = await db.execute(
-                        select(Call).where(Call.id == item.get("id"))
+                    call_id = item.get("id")
+                    if call_id is None:
+                        continue
+
+                    if call_id in existing_ids:
+                        should_stop = True
+                        stop_call_id = call_id
+                        break
+
+                    call = Call(
+                        id=call_id,
+                        classname=item.get("classname"),
+                        console_output=item.get("console_output"),
+                        created_by=item.get("created_by"),
+                        created_on=parse_datetime(item.get("created_on")),
+                        edited_by=item.get("edited_by"),
+                        edited_on=parse_datetime(item.get("edited_on")),
+                        end_time=parse_datetime(item.get("end_time")),
+                        error_output=item.get("error_output"),
+                        input=item.get("input"),
+                        input_data=item.get("input_data"),
+                        input_params=item.get("input_params"),
+                        is_deleted=to_string(item.get("is_deleted")),
+                        mid=item.get("mid"),
+                        os_pid=item.get("os_pid"),
+                        owner=item.get("owner"),
+                        result=item.get("result"),
+                        start_time=parse_datetime(item.get("start_time")),
+                        status=item.get("status"),
                     )
-                    existing_call = result.scalar_one_or_none()
-                    
-                    if not existing_call:
-                        # Create new call
-                        call = Call(
-                            id=item.get("id"),
-                            classname=item.get("classname"),
-                            console_output=item.get("console_output"),
-                            created_by=item.get("created_by"),
-                            created_on=parse_datetime(item.get("created_on")),
-                            edited_by=item.get("edited_by"),
-                            edited_on=parse_datetime(item.get("edited_on")),
-                            end_time=parse_datetime(item.get("end_time")),
-                            error_output=item.get("error_output"),
-                            input=item.get("input"),
-                            input_data=item.get("input_data"),
-                            input_params=item.get("input_params"),
-                            is_deleted=to_string(item.get("is_deleted")),
-                            mid=item.get("mid"),
-                            os_pid=item.get("os_pid"),
-                            owner=item.get("owner"),
-                            result=item.get("result"),
-                            start_time=parse_datetime(item.get("start_time")),
-                            status=item.get("status"),
-                        )
-                        db.add(call)
-                
-                await db.commit()
+                    db.add(call)
+                    batch_inserted += 1
+
+                if batch_inserted:
+                    await db.commit()
+                    inserted_count += batch_inserted
+
+                if should_stop:
+                    print(f"Delta sync stop: encountered existing call id={stop_call_id}")
+                    break
                 
                 i_display_start += display_length
                 
@@ -188,7 +209,7 @@ async def update_calls(db: AsyncSession):
                 await db.rollback()
                 raise
     
-    print("Data synchronization completed.")
+    print(f"Data synchronization completed. Inserted {inserted_count} new calls.")
 
 
 async def dump_csv(db: AsyncSession):
@@ -215,4 +236,3 @@ async def dump_csv(db: AsyncSession):
             })
     
     print(f"Write to {settings.CSV_FILE_PATH} successfully!")
-

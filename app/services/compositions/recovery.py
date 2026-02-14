@@ -17,8 +17,57 @@ from .builder import build_composition_for_task, normalize_composition
 from .helpers import add_task_link, normalize_dataset_id
 from .repository import create_compositions, create_users
 
+SUCCESS_STATUSES = {"TASK_SUCCEEDED", "TASK_SUCCESS", "SUCCESS", "SUCCEEDED"}
 
-def _is_successful_with_wms(task: Call, result_data: Dict) -> bool:
+
+def _normalize_link_value(value: Any) -> Any:
+    """
+    Normalize values used for linking between calls.
+    Works for scalars, arrays, objects and JSON-encoded strings.
+    """
+    def _canonicalize(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: _canonicalize(v) for k, v in sorted(obj.items(), key=lambda item: str(item[0]))}
+        if isinstance(obj, list):
+            # Preserve original sequence: list order is semantically important for linkage.
+            return [_canonicalize(item) for item in obj]
+        return obj
+
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        # Avoid treating plain text values as JSON (prevents noisy parse errors).
+        if stripped.startswith("{") or stripped.startswith("["):
+            parsed = safe_json_parse(stripped, stripped)
+        else:
+            parsed = stripped
+    else:
+        parsed = value
+
+    parsed = _canonicalize(parsed)
+
+    if isinstance(parsed, (list, dict)):
+        try:
+            return json.dumps(parsed, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            return str(parsed)
+
+    return str(parsed)
+
+
+def _is_success_status(status: Any) -> bool:
+    """Return True for known success statuses; empty status is treated as unknown (allowed)."""
+    if status is None:
+        return True
+    normalized = str(status).strip().upper()
+    if not normalized:
+        return True
+    return normalized in SUCCESS_STATUSES
+
+
+def _is_successful_with_wms(task: Call, result_data: Dict, service_outputs: Dict[str, Any]) -> bool:
     """
     Check if task is successful WMS task or mapcombine task
     
@@ -29,11 +78,29 @@ def _is_successful_with_wms(task: Call, result_data: Dict) -> bool:
     Returns:
         True if task is successful with WMS or mapcombine
     """
-    return (
-        result_data and
-        ((result_data.get("status") == "success" and "wms_link" in result_data) or 
-         (task.mid == 399 and "map" in result_data and task.status == TASK_SUCCEEDED))
-    )
+    if not result_data:
+        return False
+
+    if not _is_success_status(task.status):
+        return False
+
+    # Legacy terminal marker for WMS services.
+    if result_data.get("status") == "success" and "wms_link" in result_data:
+        return True
+
+    # Generic terminal marker driven by in_and_out configuration:
+    # if any configured output field is present/non-empty, treat as terminal call.
+    for output_name, widget_type in service_outputs.items():
+        output_value = result_data.get(output_name)
+        value_for_check = (
+            _normalize_link_value(output_value)
+            if widget_type == WIDGET_EDIT
+            else output_value
+        )
+        if value_for_check not in (None, "", [], {}, "[]", "{}"):
+            return True
+
+    return False
 
 
 def _process_task_inputs(task: Call, inputs: Dict, service_inputs: Dict,
@@ -51,22 +118,24 @@ def _process_task_inputs(task: Call, inputs: Dict, service_inputs: Dict,
     for param_name in service_inputs.keys():
         input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
         widget_type = service_inputs[param_name]
-        
-        # For 'edit' widget type, convert value to string
-        if widget_type == WIDGET_EDIT and input_value is not None:
-            input_value = str(input_value)
-        
-        # Skip if input_value is not hashable (dict, list, etc.)
-        if input_value and is_hashable(input_value):
-            if input_value in file_value_tracker and widget_type != WIDGET_THEME_SELECT:
-                tracker_info = file_value_tracker[input_value]
-                add_task_link(
-                    task_links,
-                    task.id,
-                    tracker_info["value"],
-                    tracker_info["name"],
-                    param_name
-                )
+        if widget_type == WIDGET_THEME_SELECT:
+            continue
+
+        input_key = (
+            _normalize_link_value(input_value)
+            if widget_type == WIDGET_EDIT
+            else input_value
+        )
+
+        if input_key and is_hashable(input_key) and input_key in file_value_tracker:
+            tracker_info = file_value_tracker[input_key]
+            add_task_link(
+                task_links,
+                task.id,
+                tracker_info["value"],
+                tracker_info["name"],
+                param_name
+            )
 
 
 def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
@@ -86,15 +155,15 @@ def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
     for param_name in service_outputs.keys():
         output_value = result_data.get(param_name)
         widget_type = service_outputs[param_name]
-        
-        # For 'edit' widget type, convert value to string and track
-        if widget_type == WIDGET_EDIT and output_value is not None:
-            output_value = str(output_value)
-            file_value_tracker[output_value] = {
+
+        if widget_type == WIDGET_EDIT:
+            output_key = _normalize_link_value(output_value)
+            if output_key is None:
+                continue
+            file_value_tracker[output_key] = {
                 "value": task.id,
                 "name": param_name
             }
-        # Track hashable values for other widget types
         elif output_value and is_hashable(output_value):
             file_value_tracker[output_value] = {
                 "value": task.id,
@@ -150,7 +219,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
             service_outputs = in_and_out[task.mid].get("output", {})
             
             # Check if successful with WMS
-            is_successful_with_wms = _is_successful_with_wms(task, result_data)
+            is_successful_with_wms = _is_successful_with_wms(task, result_data, service_outputs)
             
             if is_successful_with_wms:
                 # Process inputs to find links
@@ -226,7 +295,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         
         # First pass: analyze connections
         for call in calls_list:
-            if call.status != TASK_SUCCEEDED:
+            if not _is_success_status(call.status):
                 continue
             
             inputs = safe_json_parse(call.input, {})
@@ -270,11 +339,14 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
                         
                 elif widget_type == WIDGET_FILE or widget_type == WIDGET_EDIT:
                     # File connection or edit widget
-                    # For 'edit' widget type, convert value to string
-                    if widget_type == WIDGET_EDIT:
-                        input_value = str(input_value)
-                    
-                    file_info = file_tracker.get(input_value)
+                    input_key = (
+                        _normalize_link_value(input_value)
+                        if widget_type == WIDGET_EDIT
+                        else input_value
+                    )
+                    if not (input_key and is_hashable(input_key)):
+                        continue
+                    file_info = file_tracker.get(input_key)
                     if file_info and file_info.get("source_call_id") and file_info.get("source_param_name"):
                         if call.id not in call_edges:
                             call_edges[call.id] = {}
@@ -290,15 +362,15 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
                 output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
                 widget_type = service_outputs[param_name]
                 
-                # For 'edit' widget type, convert value to string and track
-                if widget_type == WIDGET_EDIT and output_value is not None:
-                    output_value = str(output_value)
-                    file_tracker[output_value] = {
+                if widget_type == WIDGET_EDIT:
+                    output_key = _normalize_link_value(output_value)
+                    if output_key is None:
+                        continue
+                    file_tracker[output_key] = {
                         "source_call_id": call.id,
                         "source_param_name": param_name
                     }
-                # Track file values
-                elif widget_type == WIDGET_FILE and output_value:
+                elif widget_type == WIDGET_FILE and output_value and is_hashable(output_value):
                     file_tracker[output_value] = {
                         "source_call_id": call.id,
                         "source_param_name": param_name
@@ -308,7 +380,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         raw_compositions = {}
         
         for call in calls_list:
-            if call.status != TASK_SUCCEEDED:
+            if not _is_success_status(call.status):
                 continue
             
             # Dataset connections
@@ -436,4 +508,3 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
     except Exception as e:
         print(f"Error in recover_new function: {e}")
         raise
-

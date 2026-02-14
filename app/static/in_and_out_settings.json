@@ -1,10 +1,12 @@
 {
     "399": {
         "input": {
+            "tables": "edit",
             "map": "edit",
             "new_layer_wms_link": "edit"
         },
         "output": {
+            "tables": "edit",
             "map": "edit"
         }
     },
