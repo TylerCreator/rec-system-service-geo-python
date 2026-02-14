@@ -66,8 +66,57 @@ def _extract_dataset_ids_from_value(value: Any) -> List[Any]:
 
     return out
 
+SUCCESS_STATUSES = {"TASK_SUCCEEDED", "TASK_SUCCESS", "SUCCESS", "SUCCEEDED"}
 
-def _is_successful_with_wms(task: Call, result_data: Dict) -> bool:
+
+def _normalize_link_value(value: Any) -> Any:
+    """
+    Normalize values used for linking between calls.
+    Works for scalars, arrays, objects and JSON-encoded strings.
+    """
+    def _canonicalize(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: _canonicalize(v) for k, v in sorted(obj.items(), key=lambda item: str(item[0]))}
+        if isinstance(obj, list):
+            # Preserve original sequence: list order is semantically important for linkage.
+            return [_canonicalize(item) for item in obj]
+        return obj
+
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        # Avoid treating plain text values as JSON (prevents noisy parse errors).
+        if stripped.startswith("{") or stripped.startswith("["):
+            parsed = safe_json_parse(stripped, stripped)
+        else:
+            parsed = stripped
+    else:
+        parsed = value
+
+    parsed = _canonicalize(parsed)
+
+    if isinstance(parsed, (list, dict)):
+        try:
+            return json.dumps(parsed, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            return str(parsed)
+
+    return str(parsed)
+
+
+def _is_success_status(status: Any) -> bool:
+    """Return True for known success statuses; empty status is treated as unknown (allowed)."""
+    if status is None:
+        return True
+    normalized = str(status).strip().upper()
+    if not normalized:
+        return True
+    return normalized in SUCCESS_STATUSES
+
+
+def _is_successful_with_wms(task: Call, result_data: Dict, service_outputs: Dict[str, Any]) -> bool:
     """
     Check if task is successful WMS task or mapcombine task
     
@@ -78,11 +127,29 @@ def _is_successful_with_wms(task: Call, result_data: Dict) -> bool:
     Returns:
         True if task is successful with WMS or mapcombine
     """
-    return (
-        result_data and
-        ((result_data.get("status") == "success" and "wms_link" in result_data) or 
-         (task.mid == 399 and "map" in result_data and task.status == TASK_SUCCEEDED))
-    )
+    if not result_data:
+        return False
+
+    if not _is_success_status(task.status):
+        return False
+
+    # Legacy terminal marker for WMS services.
+    if result_data.get("status") == "success" and "wms_link" in result_data:
+        return True
+
+    # Generic terminal marker driven by in_and_out configuration:
+    # if any configured output field is present/non-empty, treat as terminal call.
+    for output_name, widget_type in service_outputs.items():
+        output_value = result_data.get(output_name)
+        value_for_check = (
+            _normalize_link_value(output_value)
+            if widget_type == WIDGET_EDIT
+            else output_value
+        )
+        if value_for_check not in (None, "", [], {}, "[]", "{}"):
+            return True
+
+    return False
 
 
 def _process_task_inputs(task: Call, inputs: Dict, service_inputs: Dict,
@@ -100,22 +167,24 @@ def _process_task_inputs(task: Call, inputs: Dict, service_inputs: Dict,
     for param_name in service_inputs.keys():
         input_value = inputs.get(param_name) if isinstance(inputs, dict) else None
         widget_type = service_inputs[param_name]
-        
-        # For 'edit' widget type, convert value to string
-        if widget_type == WIDGET_EDIT and input_value is not None:
-            input_value = str(input_value)
-        
-        # Skip if input_value is not hashable (dict, list, etc.)
-        if input_value and is_hashable(input_value):
-            if input_value in file_value_tracker and widget_type != WIDGET_THEME_SELECT:
-                tracker_info = file_value_tracker[input_value]
-                add_task_link(
-                    task_links,
-                    task.id,
-                    tracker_info["value"],
-                    tracker_info["name"],
-                    param_name
-                )
+        if widget_type == WIDGET_THEME_SELECT:
+            continue
+
+        input_key = (
+            _normalize_link_value(input_value)
+            if widget_type == WIDGET_EDIT
+            else input_value
+        )
+
+        if input_key and is_hashable(input_key) and input_key in file_value_tracker:
+            tracker_info = file_value_tracker[input_key]
+            add_task_link(
+                task_links,
+                task.id,
+                tracker_info["value"],
+                tracker_info["name"],
+                param_name
+            )
 
 
 def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
@@ -135,15 +204,15 @@ def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
     for param_name in service_outputs.keys():
         output_value = result_data.get(param_name)
         widget_type = service_outputs[param_name]
-        
-        # For 'edit' widget type, convert value to string and track
-        if widget_type == WIDGET_EDIT and output_value is not None:
-            output_value = str(output_value)
-            file_value_tracker[output_value] = {
+
+        if widget_type == WIDGET_EDIT:
+            output_key = _normalize_link_value(output_value)
+            if output_key is None:
+                continue
+            file_value_tracker[output_key] = {
                 "value": task.id,
                 "name": param_name
             }
-        # Track hashable values for other widget types
         elif output_value and is_hashable(output_value):
             file_value_tracker[output_value] = {
                 "value": task.id,
@@ -199,7 +268,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
             service_outputs = in_and_out[task.mid].get("output", {})
             
             # Check if successful with WMS
-            is_successful_with_wms = _is_successful_with_wms(task, result_data)
+            is_successful_with_wms = _is_successful_with_wms(task, result_data, service_outputs)
             
             if is_successful_with_wms:
                 # Process inputs to find links
@@ -281,7 +350,7 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
         
         # First pass: analyze connections
         for call in calls_list:
-            if call.status != TASK_SUCCEEDED:
+            if not _is_success_status(call.status):
                 continue
             
             inputs = safe_json_parse(call.input, {})
@@ -304,44 +373,38 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             for param_name, input_value in input_items:
                 if input_value is None:
                     continue
-                dataset_ids = _extract_dataset_ids_from_value(input_value)
-                for raw_dataset_id in dataset_ids:
-                    try:
-                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
-                    except Exception:
+                
+                widget_type = service_inputs[param_name]
+                
+                if widget_type == WIDGET_THEME_SELECT:
+                    # Dataset connection
+                    parsed_input = safe_json_parse(input_value, input_value) if isinstance(input_value, str) else input_value
+                    
+                    if isinstance(parsed_input, dict) and "dataset_id" in parsed_input:
+                        normalized_id = normalize_dataset_id(parsed_input["dataset_id"], guid_map)
+                        dataset_links[call.id] = f"{normalized_id}:{param_name}"
+                        
+                        # Update service-dataset edges
+                        if normalized_id not in service_dataset_edges:
+                            service_dataset_edges[normalized_id] = {}
+                        if call.mid not in service_dataset_edges[normalized_id]:
+                            service_dataset_edges[normalized_id][call.mid] = {"total": 0}
+                        if call.owner not in service_dataset_edges[normalized_id][call.mid]:
+                            service_dataset_edges[normalized_id][call.mid][call.owner] = 0
+                        
+                        service_dataset_edges[normalized_id][call.mid][call.owner] += 1
+                        service_dataset_edges[normalized_id][call.mid]["total"] += 1
+                        
+                elif widget_type == WIDGET_FILE or widget_type == WIDGET_EDIT:
+                    # File connection or edit widget
+                    input_key = (
+                        _normalize_link_value(input_value)
+                        if widget_type == WIDGET_EDIT
+                        else input_value
+                    )
+                    if not (input_key and is_hashable(input_key)):
                         continue
-
-                    dataset_links.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
-
-                    # Update service-dataset edges stats
-                    if normalized_id not in service_dataset_edges:
-                        service_dataset_edges[normalized_id] = {}
-                    if call.mid not in service_dataset_edges[normalized_id]:
-                        service_dataset_edges[normalized_id][call.mid] = {"total": 0}
-                    if call.owner not in service_dataset_edges[normalized_id][call.mid]:
-                        service_dataset_edges[normalized_id][call.mid][call.owner] = 0
-
-                    service_dataset_edges[normalized_id][call.mid][call.owner] += 1
-                    service_dataset_edges[normalized_id][call.mid]["total"] += 1
-
-            # Fingerprint linking: scan ALL input keys (configured keys may not match real log fields)
-            all_input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
-            for param_name in all_input_keys:
-                input_value = inputs.get(param_name)
-                if input_value is None:
-                    continue
-
-                widget_type = service_inputs.get(param_name)
-
-                # File/edit connection: use configured widget types if known; otherwise fingerprint everything
-                should_check_fingerprint = (
-                    widget_type in (WIDGET_FILE, WIDGET_EDIT) or widget_type is None
-                )
-                if should_check_fingerprint:
-                    fp = _fingerprint_value(input_value)
-                    if not fp:
-                        continue
-                    file_info = file_tracker.get(fp)
+                    file_info = file_tracker.get(input_key)
                     if file_info and file_info.get("source_call_id") and file_info.get("source_param_name"):
                         if call.id not in call_edges:
                             call_edges[call.id] = {}
@@ -356,32 +419,27 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
 
             for param_name in all_output_keys:
                 output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
-                if output_value is None:
-                    continue
-
-                # Dataset outputs (derived tables)
-                output_dataset_ids = _extract_dataset_ids_from_value(output_value)
-                for raw_dataset_id in output_dataset_ids:
-                    try:
-                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
-                    except Exception:
+                widget_type = service_outputs[param_name]
+                
+                if widget_type == WIDGET_EDIT:
+                    output_key = _normalize_link_value(output_value)
+                    if output_key is None:
                         continue
-                    dataset_outputs.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
-                    dataset_producers[str(normalized_id)] = call.id
-
-                fp = _fingerprint_value(output_value)
-                if not fp:
-                    continue
-                file_tracker[fp] = {
-                    "source_call_id": call.id,
-                    "source_param_name": param_name
-                }
+                    file_tracker[output_key] = {
+                        "source_call_id": call.id,
+                        "source_param_name": param_name
+                    }
+                elif widget_type == WIDGET_FILE and output_value and is_hashable(output_value):
+                    file_tracker[output_value] = {
+                        "source_call_id": call.id,
+                        "source_param_name": param_name
+                    }
         
         # Second pass: build compositions
         raw_compositions = {}
         
         for call in calls_list:
-            if call.status != TASK_SUCCEEDED:
+            if not _is_success_status(call.status):
                 continue
             
             # Dataset connections (can be multiple per call)
@@ -632,4 +690,3 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
     except Exception as e:
         print(f"Error in recover_new function: {e}")
         raise
-

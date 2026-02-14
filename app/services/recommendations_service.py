@@ -3,7 +3,7 @@ Recommendations service - high-level business logic for recommendations
 Wraps the recommendation engine with additional business logic
 """
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.recommendations import get_engine, RecommendationResult
@@ -30,7 +30,7 @@ async def get_recommendations_v2(
     min_calls: Optional[int] = None,
     ids_only: bool = False,
     db: Optional[AsyncSession] = None
-) -> Dict[str, Any] | List[int]:
+) -> Union[Dict[str, Any], List[int]]:
     """
     Get recommendations using new engine (v2 API)
     
@@ -91,7 +91,7 @@ async def get_recommendations_batch(
     algorithm: Optional[str] = None,
     ids_only: bool = False,
     db: Optional[AsyncSession] = None
-) -> Dict[str, Any] | Dict[str, List[int]]:
+) -> Union[Dict[str, Any], Dict[str, List[int]]]:
     """
     Get recommendations for multiple users
     
@@ -205,4 +205,3 @@ async def refresh_recommendations(db: AsyncSession) -> Dict[str, Any]:
 # Note: get_recommendations_legacy() removed
 # Legacy endpoints now use get_recommendations_v2() with ids_only=True
 # This provides unified response format across all endpoints
-
