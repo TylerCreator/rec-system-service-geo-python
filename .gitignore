@@ -24,3 +24,19 @@ yarn-error.log*
 
 .env
 .env_dev
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
