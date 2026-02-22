@@ -113,6 +113,24 @@ class Composition(Base):
     updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class TableComposition(Base):
+    """
+    TableComposition model - minimal table-only compositions.
+    Contains only composition id and ordered table sequence.
+    """
+    __tablename__ = "TableCompositions"
+
+    id = Column(Text, primary_key=True, unique=True)
+    table_ids = Column(JSON, nullable=False)
+    # Backward-compatible placeholders required by existing DB schema.
+    # Logical payload is table_ids; these are stored as empty arrays.
+    nodes = Column(JSON, nullable=False, default=list)
+    links = Column(JSON, nullable=False, default=list)
+
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Dataset(Base):
     """
     Dataset model - stores dataset metadata

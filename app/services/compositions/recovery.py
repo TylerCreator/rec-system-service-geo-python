@@ -15,7 +15,7 @@ from app.services.utils.validators import is_hashable
 from .service_map import build_service_connection_map, build_dataset_guid_map
 from .builder import build_composition_for_task, normalize_composition
 from .helpers import add_task_link, normalize_dataset_id
-from .repository import create_compositions, create_users
+from .repository import create_compositions, create_users, create_table_compositions
 
 SUCCESS_STATUSES = {"TASK_SUCCEEDED", "TASK_SUCCESS", "SUCCESS", "SUCCEEDED"}
 
@@ -55,6 +55,27 @@ def _normalize_link_value(value: Any) -> Any:
             return str(parsed)
 
     return str(parsed)
+
+
+def _extract_dataset_ids_from_value(value: Any) -> List[Any]:
+    """Recursively extract dataset_id values from nested input structures."""
+    out: List[Any] = []
+
+    if isinstance(value, str):
+        parsed = safe_json_parse(value, value)
+        if parsed is not value:
+            value = parsed
+
+    if isinstance(value, dict):
+        if "dataset_id" in value:
+            out.append(value.get("dataset_id"))
+        for v in value.values():
+            out.extend(_extract_dataset_ids_from_value(v))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(_extract_dataset_ids_from_value(item))
+
+    return out
 
 
 def _is_success_status(status: Any) -> bool:
@@ -187,6 +208,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         
         # Build service connection map
         in_and_out = await build_service_connection_map(db)
+        guid_map = await build_dataset_guid_map(db)
         
         # Get all tasks
         print("Loading tasks...")
@@ -199,6 +221,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         task_links = {}
         task_id_to_index = {task.id: idx for idx, task in enumerate(tasks_list)}
         users = {}
+        table_compositions = []
         
         # Build users dict
         for task in tasks_list:
@@ -211,6 +234,27 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         for task in tasks_list:
             inputs = safe_json_parse(task.input, {})
             result_data = safe_json_parse(task.result, {})
+
+            # Build minimal table compositions directly from call logs:
+            # one row per successful call that references table dataset_id(s) in input.
+            if _is_success_status(task.status):
+                raw_dataset_ids = _extract_dataset_ids_from_value(inputs)
+                normalized_tables: List[int] = []
+                seen_tables = set()
+                for raw_dataset_id in raw_dataset_ids:
+                    try:
+                        table_id = normalize_dataset_id(raw_dataset_id, guid_map)
+                    except Exception:
+                        continue
+                    if table_id in seen_tables:
+                        continue
+                    seen_tables.add(table_id)
+                    normalized_tables.append(table_id)
+                if normalized_tables:
+                    table_compositions.append({
+                        "id": str(task.id),
+                        "table_ids": normalized_tables,
+                    })
             
             if task.mid not in in_and_out:
                 continue
@@ -246,11 +290,13 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         # Save results
         await create_compositions(db, compositions)
         await create_users(db, users)
+        await create_table_compositions(db, table_compositions)
         
         return {
             "success": True,
             "message": "Service composition recovery completed",
             "compositionsCount": len(compositions),
+            "tableCompositionsCount": len(table_compositions),
             "usersCount": len(users)
         }
         

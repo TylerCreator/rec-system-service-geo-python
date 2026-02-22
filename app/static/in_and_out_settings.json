@@ -11,6 +11,9 @@
         }
     },
     "309": {
+        "input": {
+            "source": "theme_select"
+        },
         "output": {
             "wms_link": "edit"
         }
