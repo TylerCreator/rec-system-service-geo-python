@@ -250,7 +250,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
                         continue
                     seen_tables.add(table_id)
                     normalized_tables.append(table_id)
-                if normalized_tables:
+                if len(normalized_tables) >= 2:
                     table_compositions.append({
                         "id": str(task.id),
                         "table_ids": normalized_tables,
