@@ -2,6 +2,7 @@
     "399": {
         "input": {
             "tables": "edit",
+            "new_table": "theme_select",
             "map": "edit",
             "new_layer_wms_link": "edit"
         },

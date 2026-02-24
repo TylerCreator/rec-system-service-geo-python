@@ -221,8 +221,6 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         task_links = {}
         task_id_to_index = {task.id: idx for idx, task in enumerate(tasks_list)}
         users = {}
-        table_compositions = []
-        
         # Build users dict
         for task in tasks_list:
             if task.owner:
@@ -234,27 +232,6 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         for task in tasks_list:
             inputs = safe_json_parse(task.input, {})
             result_data = safe_json_parse(task.result, {})
-
-            # Build minimal table compositions directly from call logs:
-            # one row per successful call that references table dataset_id(s) in input.
-            if _is_success_status(task.status):
-                raw_dataset_ids = _extract_dataset_ids_from_value(inputs)
-                normalized_tables: List[int] = []
-                seen_tables = set()
-                for raw_dataset_id in raw_dataset_ids:
-                    try:
-                        table_id = normalize_dataset_id(raw_dataset_id, guid_map)
-                    except Exception:
-                        continue
-                    if table_id in seen_tables:
-                        continue
-                    seen_tables.add(table_id)
-                    normalized_tables.append(table_id)
-                if len(normalized_tables) >= 2:
-                    table_compositions.append({
-                        "id": str(task.id),
-                        "table_ids": normalized_tables,
-                    })
             
             if task.mid not in in_and_out:
                 continue
@@ -290,7 +267,38 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         # Save results
         await create_compositions(db, compositions)
         await create_users(db, users)
+        
+        # Build table compositions from recovered compositions (not from raw Calls).
+        # For each composition, scan all node inputs/outputs for dataset_id references
+        # and collect an ordered sequence of unique table IDs.
+        table_compositions = []
+        for comp in compositions:
+            table_ids_ordered: List[int] = []
+            seen_tids: set = set()
+            for node in comp.get("nodes", []):
+                # Scan all inputs for dataset_id values
+                for inp in node.get("inputs", []):
+                    val = inp.get("value")
+                    if val is None or (isinstance(val, str) and val.startswith("ref::")):
+                        continue
+                    dataset_ids = _extract_dataset_ids_from_value(val)
+                    for did in dataset_ids:
+                        try:
+                            tid = normalize_dataset_id(did, guid_map)
+                        except Exception:
+                            continue
+                        if tid not in seen_tids:
+                            seen_tids.add(tid)
+                            table_ids_ordered.append(tid)
+            
+            if len(table_ids_ordered) >= 2:
+                table_compositions.append({
+                    "id": comp.get("id", ""),
+                    "table_ids": table_ids_ordered,
+                })
+        
         await create_table_compositions(db, table_compositions)
+        print(f"Created {len(table_compositions)} table compositions (from {len(compositions)} compositions)")
         
         return {
             "success": True,
