@@ -1,15 +1,16 @@
 # Dockerfile for FastAPI application
-FROM python:3.9-slim
+FROM python:3.9-slim-bookworm
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Copy requirements first (for caching)
 COPY requirements.txt .
