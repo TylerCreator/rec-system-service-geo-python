@@ -150,13 +150,13 @@ def _process_task_inputs(task: Call, inputs: Dict, service_inputs: Dict,
 
         if input_key and is_hashable(input_key) and input_key in file_value_tracker:
             tracker_info = file_value_tracker[input_key]
-            add_task_link(
-                task_links,
-                task.id,
-                tracker_info["value"],
-                tracker_info["name"],
-                param_name
-            )
+                add_task_link(
+                    task_links,
+                    task.id,
+                    tracker_info["value"],
+                    tracker_info["name"],
+                    param_name
+                )
 
 
 def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
@@ -176,7 +176,7 @@ def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
     for param_name in service_outputs.keys():
         output_value = result_data.get(param_name)
         widget_type = service_outputs[param_name]
-
+        
         if widget_type == WIDGET_EDIT:
             output_key = _normalize_link_value(output_value)
             if output_key is None:

@@ -168,8 +168,4 @@ async def predict_next(
             if len(predictions) >= n:
                 break
     
-    return {
-        "table_sequence": table_sequence,
-        "predictions": predictions,
-        "model": "table_markov_chain",
-    }
+    return predictions

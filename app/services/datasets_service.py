@@ -23,8 +23,8 @@ async def update_datasets(db: AsyncSession):
         last_err = None
         for attempt in range(3):
             try:
-                response = await client.post(url, json=request_data)
-                response_data = response.json()
+        response = await client.post(url, json=request_data)
+        response_data = response.json()
                 last_err = None
                 break
             except Exception as e:
@@ -68,9 +68,9 @@ async def update_datasets(db: AsyncSession):
                 last_err = None
                 data = None
                 for attempt in range(3):
-                    try:
-                        response = await client.post(url, json=request_data)
-                        data = response.json().get("aaData", [])
+            try:
+                response = await client.post(url, json=request_data)
+                data = response.json().get("aaData", [])
                         last_err = None
                         break
                     except Exception as e:
