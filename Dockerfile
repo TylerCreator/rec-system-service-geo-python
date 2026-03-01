@@ -5,10 +5,13 @@ FROM python:3.9-slim-bookworm
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
+    mkdir -p /var/cache/apt/archives/partial && \
+    apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Copy requirements first (for caching)
 COPY requirements.txt .
