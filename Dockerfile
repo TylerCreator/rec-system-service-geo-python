@@ -1,5 +1,5 @@
 # Dockerfile for FastAPI application
-FROM python:3.11-slim
+FROM python:3.9-slim
 
 # Set working directory
 WORKDIR /app
@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Copy wait-for-it script
+# Copy wait-for-it script explicitly for old docker-compose v2 startup flow
 COPY wait-for-it.sh /app/wait-for-it.sh
 RUN chmod +x /app/wait-for-it.sh
 
@@ -29,10 +29,8 @@ RUN chmod +x /app/wait-for-it.sh
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import os, httpx; port = os.getenv('PORT', '8080'); ssl_enabled = os.getenv('SSL_ENABLED', 'false').lower() == 'true'; scheme = 'https' if ssl_enabled else 'http'; url = f'{scheme}://localhost:{port}/'; kwargs = {'verify': False} if ssl_enabled else {}; httpx.get(url, timeout=5.0, **kwargs)" || exit 1
 
 # Run application
-# main.py автоматически читает настройки из .env (host, port, SSL)
 CMD ["python", "main.py"]
-
