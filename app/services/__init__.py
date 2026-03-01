@@ -1,5 +1,9 @@
 """
-Business logic services
+Business logic services package.
+
+Keep package initialization lightweight to avoid circular-import issues during
+application startup. Submodules should be imported explicitly by consumers, e.g.:
+    from app.services import calls_service
 """
 from . import (
     calls_service,
