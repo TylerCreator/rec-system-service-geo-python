@@ -4,21 +4,12 @@ FROM python:3.9-slim-bookworm
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
-    mkdir -p /var/cache/apt/archives/partial && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
-
 # Copy requirements first (for caching)
 COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --prefer-binary --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
