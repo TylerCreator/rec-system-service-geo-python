@@ -15,56 +15,7 @@ from app.services.utils.validators import is_hashable
 from .service_map import build_service_connection_map, build_dataset_guid_map
 from .builder import build_composition_for_task, normalize_composition
 from .helpers import add_task_link, normalize_dataset_id
-from .repository import create_compositions, create_users
-from .repository import create_table_compositions
-from .table_compositions import extract_table_compositions_from_service_compositions
-
-
-def _fingerprint_value(value: Any) -> str:
-    """
-    Create a stable, comparable fingerprint for values used to link outputs->inputs.
-    Supports scalars, dicts, and lists (via JSON canonicalization).
-    """
-    if value is None:
-        return ""
-    if isinstance(value, (int, float, bool)):
-        return str(value)
-    if isinstance(value, str):
-        return value
-    if isinstance(value, (dict, list)):
-        try:
-            return json.dumps(value, sort_keys=True, ensure_ascii=False)
-        except Exception:
-            return str(value)
-    return str(value)
-
-
-def _extract_dataset_ids_from_value(value: Any) -> List[Any]:
-    """
-    Recursively extract dataset_id values from nested structures.
-
-    Examples encountered in real logs:
-    - {"theme": {"dataset_id": 3096, ...}}
-    - {"new_table": {"dataset_id": "3086", ...}, "tables": [{"dataset_id": "..."}]}
-    """
-    out: List[Any] = []
-
-    # If JSON-string, attempt to parse
-    if isinstance(value, str):
-        parsed = safe_json_parse(value, None)
-        if parsed is not None and parsed != value:
-            value = parsed
-
-    if isinstance(value, dict):
-        if "dataset_id" in value:
-            out.append(value.get("dataset_id"))
-        for v in value.values():
-            out.extend(_extract_dataset_ids_from_value(v))
-    elif isinstance(value, list):
-        for item in value:
-            out.extend(_extract_dataset_ids_from_value(item))
-
-    return out
+from .repository import create_compositions, create_users, create_table_compositions
 
 SUCCESS_STATUSES = {"TASK_SUCCEEDED", "TASK_SUCCESS", "SUCCESS", "SUCCEEDED"}
 
@@ -104,6 +55,27 @@ def _normalize_link_value(value: Any) -> Any:
             return str(parsed)
 
     return str(parsed)
+
+
+def _extract_dataset_ids_from_value(value: Any) -> List[Any]:
+    """Recursively extract dataset_id values from nested input structures."""
+    out: List[Any] = []
+
+    if isinstance(value, str):
+        parsed = safe_json_parse(value, value)
+        if parsed is not value:
+            value = parsed
+
+    if isinstance(value, dict):
+        if "dataset_id" in value:
+            out.append(value.get("dataset_id"))
+        for v in value.values():
+            out.extend(_extract_dataset_ids_from_value(v))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(_extract_dataset_ids_from_value(item))
+
+    return out
 
 
 def _is_success_status(status: Any) -> bool:
@@ -178,13 +150,13 @@ def _process_task_inputs(task: Call, inputs: Dict, service_inputs: Dict,
 
         if input_key and is_hashable(input_key) and input_key in file_value_tracker:
             tracker_info = file_value_tracker[input_key]
-            add_task_link(
-                task_links,
-                task.id,
-                tracker_info["value"],
-                tracker_info["name"],
-                param_name
-            )
+                add_task_link(
+                    task_links,
+                    task.id,
+                    tracker_info["value"],
+                    tracker_info["name"],
+                    param_name
+                )
 
 
 def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
@@ -204,7 +176,7 @@ def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
     for param_name in service_outputs.keys():
         output_value = result_data.get(param_name)
         widget_type = service_outputs[param_name]
-
+        
         if widget_type == WIDGET_EDIT:
             output_key = _normalize_link_value(output_value)
             if output_key is None:
@@ -236,6 +208,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         
         # Build service connection map
         in_and_out = await build_service_connection_map(db)
+        guid_map = await build_dataset_guid_map(db)
         
         # Get all tasks
         print("Loading tasks...")
@@ -248,7 +221,6 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         task_links = {}
         task_id_to_index = {task.id: idx for idx, task in enumerate(tasks_list)}
         users = {}
-        
         # Build users dict
         for task in tasks_list:
             if task.owner:
@@ -296,10 +268,43 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         await create_compositions(db, compositions)
         await create_users(db, users)
         
+        # Build table compositions from recovered compositions (not from raw Calls).
+        # For each composition, scan all node inputs/outputs for dataset_id references
+        # and collect an ordered sequence of unique table IDs.
+        table_compositions = []
+        for comp in compositions:
+            table_ids_ordered: List[int] = []
+            seen_tids: set = set()
+            for node in comp.get("nodes", []):
+                # Scan all inputs for dataset_id values
+                for inp in node.get("inputs", []):
+                    val = inp.get("value")
+                    if val is None or (isinstance(val, str) and val.startswith("ref::")):
+                        continue
+                    dataset_ids = _extract_dataset_ids_from_value(val)
+                    for did in dataset_ids:
+                        try:
+                            tid = normalize_dataset_id(did, guid_map)
+                        except Exception:
+                            continue
+                        if tid not in seen_tids:
+                            seen_tids.add(tid)
+                            table_ids_ordered.append(tid)
+            
+            if len(table_ids_ordered) >= 2:
+                table_compositions.append({
+                    "id": comp.get("id", ""),
+                    "table_ids": table_ids_ordered,
+                })
+        
+        await create_table_compositions(db, table_compositions)
+        print(f"Created {len(table_compositions)} table compositions (from {len(compositions)} compositions)")
+        
         return {
             "success": True,
             "message": "Service composition recovery completed",
             "compositionsCount": len(compositions),
+            "tableCompositionsCount": len(table_compositions),
             "usersCount": len(users)
         }
         
@@ -373,44 +378,38 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
             for param_name, input_value in input_items:
                 if input_value is None:
                     continue
-                dataset_ids = _extract_dataset_ids_from_value(input_value)
-                for raw_dataset_id in dataset_ids:
-                    try:
-                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
-                    except Exception:
+                
+                widget_type = service_inputs[param_name]
+                
+                if widget_type == WIDGET_THEME_SELECT:
+                    # Dataset connection
+                    parsed_input = safe_json_parse(input_value, input_value) if isinstance(input_value, str) else input_value
+                    
+                    if isinstance(parsed_input, dict) and "dataset_id" in parsed_input:
+                        normalized_id = normalize_dataset_id(parsed_input["dataset_id"], guid_map)
+                        dataset_links[call.id] = f"{normalized_id}:{param_name}"
+                        
+                        # Update service-dataset edges
+                        if normalized_id not in service_dataset_edges:
+                            service_dataset_edges[normalized_id] = {}
+                        if call.mid not in service_dataset_edges[normalized_id]:
+                            service_dataset_edges[normalized_id][call.mid] = {"total": 0}
+                        if call.owner not in service_dataset_edges[normalized_id][call.mid]:
+                            service_dataset_edges[normalized_id][call.mid][call.owner] = 0
+                        
+                        service_dataset_edges[normalized_id][call.mid][call.owner] += 1
+                        service_dataset_edges[normalized_id][call.mid]["total"] += 1
+                        
+                elif widget_type == WIDGET_FILE or widget_type == WIDGET_EDIT:
+                    # File connection or edit widget
+                    input_key = (
+                        _normalize_link_value(input_value)
+                        if widget_type == WIDGET_EDIT
+                        else input_value
+                    )
+                    if not (input_key and is_hashable(input_key)):
                         continue
-
-                    dataset_links.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
-
-                    # Update service-dataset edges stats
-                    if normalized_id not in service_dataset_edges:
-                        service_dataset_edges[normalized_id] = {}
-                    if call.mid not in service_dataset_edges[normalized_id]:
-                        service_dataset_edges[normalized_id][call.mid] = {"total": 0}
-                    if call.owner not in service_dataset_edges[normalized_id][call.mid]:
-                        service_dataset_edges[normalized_id][call.mid][call.owner] = 0
-
-                    service_dataset_edges[normalized_id][call.mid][call.owner] += 1
-                    service_dataset_edges[normalized_id][call.mid]["total"] += 1
-
-            # Fingerprint linking: scan ALL input keys (configured keys may not match real log fields)
-            all_input_keys = list(inputs.keys()) if isinstance(inputs, dict) else []
-            for param_name in all_input_keys:
-                input_value = inputs.get(param_name)
-                if input_value is None:
-                    continue
-
-                widget_type = service_inputs.get(param_name)
-
-                # File/edit connection: use configured widget types if known; otherwise fingerprint everything
-                should_check_fingerprint = (
-                    widget_type in (WIDGET_FILE, WIDGET_EDIT) or widget_type is None
-                )
-                if should_check_fingerprint:
-                    fp = _fingerprint_value(input_value)
-                    if not fp:
-                        continue
-                    file_info = file_tracker.get(fp)
+                    file_info = file_tracker.get(input_key)
                     if file_info and file_info.get("source_call_id") and file_info.get("source_param_name"):
                         if call.id not in call_edges:
                             call_edges[call.id] = {}
@@ -425,26 +424,21 @@ async def recover_new(db: AsyncSession) -> Dict[str, Any]:
 
             for param_name in all_output_keys:
                 output_value = outputs.get(param_name) if isinstance(outputs, dict) else None
-                if output_value is None:
-                    continue
-
-                # Dataset outputs (derived tables)
-                output_dataset_ids = _extract_dataset_ids_from_value(output_value)
-                for raw_dataset_id in output_dataset_ids:
-                    try:
-                        normalized_id = normalize_dataset_id(raw_dataset_id, guid_map)
-                    except Exception:
+                widget_type = service_outputs[param_name]
+                
+                if widget_type == WIDGET_EDIT:
+                    output_key = _normalize_link_value(output_value)
+                    if output_key is None:
                         continue
-                    dataset_outputs.setdefault(call.id, []).append(f"{normalized_id}:{param_name}")
-                    dataset_producers[str(normalized_id)] = call.id
-
-                fp = _fingerprint_value(output_value)
-                if not fp:
-                    continue
-                file_tracker[fp] = {
-                    "source_call_id": call.id,
-                    "source_param_name": param_name
-                }
+                    file_tracker[output_key] = {
+                        "source_call_id": call.id,
+                        "source_param_name": param_name
+                    }
+                elif widget_type == WIDGET_FILE and output_value and is_hashable(output_value):
+                    file_tracker[output_value] = {
+                        "source_call_id": call.id,
+                        "source_param_name": param_name
+                    }
         
         # Second pass: build compositions
         raw_compositions = {}

@@ -398,6 +398,23 @@ async def run_full_update() -> Dict[str, Any]:
         except Exception as e:
             results.append(f"❌ trainSequentialDAGNN: FAILED - {str(e)}")
             print(f"❌ trainSequentialDAGNN failed: {e}")
+            
+        # 7. Train table compositions Markov chain model
+        print("🧮 Step 7: Training table compositions model...")
+        try:
+            from app.services import table_compositions_service
+            async with AsyncSessionLocal() as db_tab:
+                tab_result = await table_compositions_service.train(db_tab)
+                if tab_result.get("success"):
+                    results.append("✅ trainTableCompositions: SUCCESS")
+                    print("✅ trainTableCompositions completed successfully")
+                else:
+                    results.append(f"⚠️ trainTableCompositions: {tab_result.get('message')}")
+                    print(f"⚠️ trainTableCompositions: {tab_result.get('message')}")
+        except Exception as e:
+            results.append(f"❌ trainTableCompositions: FAILED - {str(e)}")
+            print(f"❌ trainTableCompositions failed: {e}")
+        
         
     except Exception as critical_error:
         print(f"💥 Critical error in full update: {critical_error}")
