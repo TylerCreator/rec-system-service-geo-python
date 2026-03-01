@@ -5,12 +5,10 @@ FROM python:3.9-slim-bookworm
 WORKDIR /app
 
 # Install system dependencies
-RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
-    apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
-    postgresql-client \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (for caching)
 COPY requirements.txt .
