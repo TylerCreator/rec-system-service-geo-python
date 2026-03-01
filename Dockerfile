@@ -8,8 +8,12 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --prefer-binary --no-cache-dir -r requirements.txt
+RUN python -m pip install \
+    --prefer-binary \
+    --no-cache-dir \
+    --disable-pip-version-check \
+    --progress-bar off \
+    -r requirements.txt
 
 # Copy application code
 COPY . .
