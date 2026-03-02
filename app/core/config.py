@@ -4,6 +4,7 @@ Reads settings from environment variables
 """
 import os
 from typing import Optional
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -45,6 +46,13 @@ class Settings(BaseSettings):
     RECOMMENDATION_MIN_USER_CALLS: int = 3  # Minimum calls for KNN
     KNN_N_NEIGHBORS: int = 4
     KNN_METRIC: str = "cosine"
+
+    @field_validator("DEBUG", "ENABLE_CRON", "SSL_ENABLED", mode="before")
+    @classmethod
+    def replace_empty_bool_with_default(cls, value, info: ValidationInfo):
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[info.field_name].default
+        return value
     
     @property
     def DATABASE_URL(self) -> str:
@@ -64,4 +72,3 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
-
