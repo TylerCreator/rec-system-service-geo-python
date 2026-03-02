@@ -1,11 +1,16 @@
 # Dockerfile for FastAPI application
-FROM python:3.9-slim-bookworm
+FROM python:3.9-slim-bullseye
 
 ENV PIP_PROGRESS_BAR=off \
     PIP_NO_PROGRESS_BAR=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    GOTO_NUM_THREADS=1
 
 # Set working directory
 WORKDIR /app
