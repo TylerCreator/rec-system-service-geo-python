@@ -384,20 +384,20 @@ async def run_full_update() -> Dict[str, Any]:
             results.append(f"❌ refreshModels (v2): FAILED - {str(e)}")
             print(f"❌ refreshModels (v2) failed: {e}")
         
-        # 6. Train sequential DAGNN model - NEW
-        print("🔮 Step 6: Training sequential DAGNN model...")
+        # 6. Train sequential models - NEW
+        print("🔮 Step 6: Training sequential models...")
         try:
             async with AsyncSessionLocal() as db_seq:
                 seq_result = await sequential_recommendations_service.train_sequential_model(db_seq)
                 if seq_result.get("success"):
-                    results.append("✅ trainSequentialDAGNN: SUCCESS")
-                    print("✅ trainSequentialDAGNN completed successfully")
+                    results.append("✅ trainSequentialModels: SUCCESS")
+                    print("✅ trainSequentialModels completed successfully")
                 else:
-                    results.append(f"⚠️ trainSequentialDAGNN: {seq_result.get('message')}")
-                    print(f"⚠️ trainSequentialDAGNN: {seq_result.get('message')}")
+                    results.append(f"⚠️ trainSequentialModels: {seq_result.get('message')}")
+                    print(f"⚠️ trainSequentialModels: {seq_result.get('message')}")
         except Exception as e:
-            results.append(f"❌ trainSequentialDAGNN: FAILED - {str(e)}")
-            print(f"❌ trainSequentialDAGNN failed: {e}")
+            results.append(f"❌ trainSequentialModels: FAILED - {str(e)}")
+            print(f"❌ trainSequentialModels failed: {e}")
             
         # 7. Train table compositions Markov chain model
         print("🧮 Step 7: Training table compositions model...")

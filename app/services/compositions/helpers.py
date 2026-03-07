@@ -22,7 +22,7 @@ def normalize_dataset_id(dataset_id: Any, guid_map: Dict[str, int]) -> int:
     # Convert GUID to numeric ID if possible
     if isinstance(dataset_id, str):
         if dataset_id in guid_map:
-        normalized_id = guid_map[dataset_id]
+            normalized_id = guid_map[dataset_id]
         else:
             # Numeric string dataset ids are common in logs
             try:
