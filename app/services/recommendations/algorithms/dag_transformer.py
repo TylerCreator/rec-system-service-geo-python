@@ -1,6 +1,6 @@
 """
-Sequential Transformer-based recommendation algorithm (Standard NLP Approach)
-Predicts next service in a workflow sequence using Self-Attention.
+Sequential Transformer-based recommendation algorithm (GraphGPS Approach)
+Predicts next service in a workflow sequence using SOTA Graph Transformers.
 """
 import json
 import pickle
@@ -14,85 +14,72 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.preprocessing import LabelEncoder
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# PyTorch Geometric imports for SOTA Graph Transformer
+from torch_geometric.data import Data, Batch
+from torch_geometric.nn import GPSConv, GINConv, global_mean_pool
 
 from app.services.recommendations.base import RecommendationAlgorithm
 from app.services.recommendations.models import Recommendation
 from app.services.compositions.recovery import recover_new
 from app.core.config import settings
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, max_len: int = 500):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        # Adding batch dimension for shape (1, max_len, d_model)
-        self.register_buffer('pe', pe.unsqueeze(0))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x shape: (batch_size, seq_len, d_model)"""
-        return x + self.pe[:, :x.size(1), :]
-
-class SequenceTransformerRecommender(nn.Module):
-    """Sequence Transformer Model"""
+class GraphGPSTransformerRecommender(nn.Module):
+    """
+    SOTA Graph Transformer Model (GraphGPS)
+    Combines local Message Passing (GINEConv) with global Multi-Head Attention.
+    """
     
-    def __init__(self, num_nodes: int, d_model: int = 64, nhead: int = 4, num_layers: int = 2, dropout: float = 0.1):
+    def __init__(self, num_nodes: int, d_model: int = 64, num_layers: int = 2, heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.d_model = d_model
         
+        # Node embedding layer
         self.embedding = nn.Embedding(num_nodes, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
         
-        encoder_layers = nn.TransformerEncoderLayer(
-            d_model=d_model, 
-            nhead=nhead, 
-            dim_feedforward=d_model * 4,
-            dropout=dropout,
-            batch_first=True
-        )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers)
-        
+        self.layers = nn.ModuleList()
+        for _ in range(num_layers):
+            # Local MPNN
+            nn_local = nn.Sequential(
+                nn.Linear(d_model, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model)
+            )
+            local_conv = GINConv(nn_local)
+            
+            # SOTA GPS Layer combining MPNN and Global Attention
+            gps = GPSConv(
+                channels=d_model,
+                conv=local_conv,
+                heads=heads,
+                dropout=dropout,
+                attn_type='multihead'  # Standard PyTorch MHA
+            )
+            self.layers.append(gps)
+            
+        # Classifier producing logits for all possible next nodes
         self.predictor = nn.Linear(d_model, num_nodes)
 
-    def forward(self, src: torch.Tensor, src_pad_mask: torch.Tensor = None):
-        """
-        src shape: (batch_size, seq_len)
-        src_pad_mask shape: (batch_size, seq_len) - True for padding tokens
-        """
-        src_emb = self.embedding(src) * math.sqrt(self.d_model)
-        src_emb = self.pos_encoder(src_emb)
+    def forward(self, x, edge_index, batch):
+        # x is (num_total_nodes_in_batch,)
+        h = self.embedding(x.squeeze(-1) if x.dim() > 1 else x)
         
-        # Transformer output shape: (batch_size, seq_len, d_model)
-        output = self.transformer_encoder(src_emb, src_key_padding_mask=src_pad_mask)
-        
-        # Use the representation of the last step to predict next
-        # (batch_size, d_model)
-        # However, because of padding, we must select the valid last token representation.
-        # But for simpler training, we can just use training sequences without padding if batch=1,
-        # or properly select. Let's assume input is padded with 0 and we find lengths.
-        
-        if src_pad_mask is not None:
-            lengths = (~src_pad_mask).sum(dim=1) - 1
-        else:
-            lengths = torch.full((src.size(0),), src.size(1) - 1, dtype=torch.long, device=src.device)
+        for layer in self.layers:
+            h = layer(h, edge_index, batch=batch)
             
-        # Gather the last non-padded output for each sequence in the batch
-        batch_idx = torch.arange(src.size(0), device=src.device)
-        last_outputs = output[batch_idx, lengths, :]
+        # Readout: Collapse the entire subgraph into one graph embedding
+        hz = global_mean_pool(h, batch)
         
-        logits = self.predictor(last_outputs)
+        # Predict multi-label logits for next nodes
+        logits = self.predictor(hz)
         return logits
 
 
 class DAGTransformerAlgorithm(RecommendationAlgorithm):
     """
-    Sequence Transformer Algorithm for sequential recommendations.
-    Uses Standard NLP Approach (Self-Attention over linear sequence of tasks).
-    Bypasses the cycle problem perfectly by treating workflow as an ordered sequence.
+    Graph Transformer Algorithm for sequential recommendations.
+    Uses True Graph Representation (Subgraphs + GraphGPS) to predict next missing edges.
     """
     
     def __init__(
@@ -101,7 +88,7 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
         d_model: int = 64,
         nhead: int = 4,
         num_layers: int = 2,
-        epochs: int = 100,
+        epochs: int = 50,
         learning_rate: float = 0.001
     ):
         super().__init__(name="dag-transformer")
@@ -112,7 +99,7 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
         self.epochs = epochs
         self.learning_rate = learning_rate
         
-        self.model: Optional[SequenceTransformerRecommender] = None
+        self.model: Optional[GraphGPSTransformerRecommender] = None
         self.node_map: Optional[Dict] = None
         self.reverse_node_map: Optional[Dict] = None
         
@@ -123,8 +110,8 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
         self.metadata_path = Path("app/static/dag_transformer_metadata.pkl")
     
     async def train(self, data=None) -> None:
-        """Train Sequence Transformer Model on paths"""
-        print(f"Training DAGTransformer model...")
+        """Train GraphGPS Model on incremental subgraphs"""
+        print(f"Training DAGTransformer (GraphGPS) model...")
         db = data if data else self.db
         
         recovery_result = await recover_new(db)
@@ -135,50 +122,57 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
         if not dag_path.exists():
             raise FileNotFoundError(f"Compositions DAG file not found: {dag_path}")
             
-        paths, all_nodes = self._extract_sequences(dag_path)
-        if len(paths) == 0:
-            raise ValueError("No paths found for DAGTransformer")
+        # Generate true subgraphs
+        graphs_data, all_nodes = self._extract_incremental_subgraphs(dag_path)
+        if len(graphs_data) == 0:
+            raise ValueError("No graph pairs found for DAGTransformer")
             
-        print(f"Extracted {len(paths)} sequences for DAGTransformer")
+        print(f"Extracted {len(graphs_data)} incremental subgraphs for GraphGPS")
 
-        # 0 is reserved for padding, so encode from 1.
-        all_nodes = sorted(list(all_nodes)) # Ensure deterministic order
+        # 0 is reserved for padding/unknown
+        all_nodes = sorted(list(all_nodes))
         self.node_map = {node: idx + 1 for idx, node in enumerate(all_nodes)}
         self.node_map["<PAD>"] = 0
         self.reverse_node_map = {idx: node for node, idx in self.node_map.items()}
 
-        # Create training pairs (context, target)
-        X = []
-        Y = []
-        for path in paths:
-            if len(path) < 2:
-                continue
-            for i in range(1, len(path)):
-                context = [self.node_map[n] for n in path[:i]]
-                target = self.node_map[path[i]]
-                X.append(context)
-                Y.append(target)
-                
-        if not X:
-            raise ValueError("No training pairs generated.")
+        # Build PyG Data objects
+        data_list = []
+        for g in graphs_data:
+            # Map nodes to IDs
+            x = torch.tensor([self.node_map[n] for n in g["nodes"]], dtype=torch.long)
             
-        self._calculate_popularities(paths)
+            # Map edges to local relative index within the subgraph
+            node_to_idx = {n: i for i, n in enumerate(g["nodes"])}
+            edge_list = []
+            if not edge_list:
+                for i in range(len(g["nodes"])):
+                    edge_list.append([i, i])
+            edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
+                
+            y_indices = [self.node_map[n] for n in g["targets"]]
+            y = torch.zeros(len(self.node_map))
+            y[y_indices] = 1.0 # Multi-hot encoding for Multi-Label target
+            
+            data_list.append(Data(x=x, edge_index=edge_index, y=y.unsqueeze(0)))
+            
+        self._calculate_popularities(graphs_data)
         
-        self.model = SequenceTransformerRecommender(
+        self.model = GraphGPSTransformerRecommender(
             num_nodes=len(self.node_map),
             d_model=self.d_model,
-            nhead=self.nhead,
+            heads=self.nhead,
             num_layers=self.num_layers
         )
         
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        criterion = nn.BCEWithLogitsLoss()
         
-        # Batch preparation logic
-        batch_size = 64
+        # Batch preparation logic using PyG DataLoader principles
+        batch_size = 32
         self.model.train()
         
-        num_batches = int(np.ceil(len(X) / batch_size))
-        indices = np.arange(len(X))
+        num_batches = int(np.ceil(len(data_list) / batch_size))
+        indices = np.arange(len(data_list))
         
         for epoch in range(self.epochs):
             np.random.shuffle(indices)
@@ -186,30 +180,14 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
             
             for b_idx in range(num_batches):
                 batch_indices = indices[b_idx * batch_size:(b_idx + 1) * batch_size]
+                batch_graphs = [data_list[i] for i in batch_indices]
                 
-                # Get lengths and find max_length
-                batch_X_raw = [X[i] for i in batch_indices]
-                batch_y = torch.tensor([Y[i] for i in batch_indices], dtype=torch.long)
-                
-                max_len = max(len(seq) for seq in batch_X_raw)
-                
-                # Pad sequences
-                batch_X_padded = []
-                batch_mask = []
-                for seq in batch_X_raw:
-                    pad_len = max_len - len(seq)
-                    padded_seq = seq + [0] * pad_len
-                    mask = [False] * len(seq) + [True] * pad_len
-                    
-                    batch_X_padded.append(padded_seq)
-                    batch_mask.append(mask)
-                    
-                batch_X = torch.tensor(batch_X_padded, dtype=torch.long)
-                batch_pad_mask = torch.tensor(batch_mask, dtype=torch.bool)
+                # Use PyG Batch to collate disjoint graphs
+                batch = Batch.from_data_list(batch_graphs)
                 
                 optimizer.zero_grad()
-                logits = self.model(batch_X, src_pad_mask=batch_pad_mask)
-                loss = F.cross_entropy(logits, batch_y)
+                logits = self.model(batch.x, batch.edge_index, batch.batch)
+                loss = criterion(logits, batch.y)
                 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
@@ -217,8 +195,8 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
                 
                 total_loss += loss.item()
             
-            if (epoch + 1) % 20 == 0:
-                print(f"   DAGTransformer Epoch {epoch+1}/{self.epochs}, Loss: {total_loss/num_batches:.4f}")
+            if (epoch + 1) % 10 == 0:
+                print(f"   DAGTransformer (GraphGPS) Epoch {epoch+1}/{self.epochs}, Loss: {total_loss/num_batches:.4f}")
                 
         self.is_trained = True
         self._save_model()
@@ -241,11 +219,22 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
         if not node_seq:
             return self._get_fallback_recommendations(n, exclude_set, "service")
             
+        # Reconstruct subgraph from plain sequence for inference.
+        # Without full graph context, we assume a chain for the given flat sequence.
+        x = torch.tensor(node_seq, dtype=torch.long)
+        edges = [[i, i+1] for i in range(len(node_seq)-1)]
+        if edges:
+            edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+        else:
+            edge_index = torch.empty((2, 0), dtype=torch.long)
+            
+        batch_vector = torch.zeros(len(node_seq), dtype=torch.long)
+            
         self.model.eval()
         with torch.no_grad():
-            x = torch.tensor([node_seq], dtype=torch.long)
-            logits = self.model(x, src_pad_mask=None)
-            probs = F.softmax(logits[0], dim=0).numpy()
+            logits = self.model(x, edge_index, batch_vector)
+            # Use Sigmoid for multi-label probabilities
+            probs = torch.sigmoid(logits[0]).numpy()
             
         top_indices = np.argsort(probs)[::-1]
         
@@ -263,7 +252,7 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
                 score=float(probs[idx]),
                 algorithm=self.name,
                 confidence=0.8,
-                reason="transformer_prediction",
+                reason="gps_transformer_prediction",
                 metadata={"sequence_length": len(sequence)}
             ))
             
@@ -289,11 +278,19 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
         if not node_seq:
             return self._get_fallback_recommendations(n, exclude_set, "table")
             
+        x = torch.tensor(node_seq, dtype=torch.long)
+        edges = [[i, i+1] for i in range(len(node_seq)-1)]
+        if edges:
+            edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+        else:
+            edge_index = torch.empty((2, 0), dtype=torch.long)
+            
+        batch_vector = torch.zeros(len(node_seq), dtype=torch.long)
+            
         self.model.eval()
         with torch.no_grad():
-            x = torch.tensor([node_seq], dtype=torch.long)
-            logits = self.model(x, src_pad_mask=None)
-            probs = F.softmax(logits[0], dim=0).numpy()
+            logits = self.model(x, edge_index, batch_vector)
+            probs = torch.sigmoid(logits[0]).numpy()
             
         top_indices = np.argsort(probs)[::-1]
         
@@ -311,7 +308,7 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
                 score=float(probs[idx]),
                 algorithm=self.name,
                 confidence=0.7,
-                reason="transformer_prediction_table",
+                reason="gps_transformer_prediction_table",
                 metadata={"table_sequence_length": len(table_sequence), "type": "table"}
             ))
             
@@ -323,7 +320,65 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
     async def recommend(self, user_id: str, n: int = 10, exclude_services: Optional[List[int]] = None) -> List[Recommendation]:
         return []
 
+    def _extract_incremental_subgraphs(self, json_path: Path) -> Tuple[List[Dict], List[str]]:
+        """
+        True Graph Representation Builder
+        Generates snapshots of developing subgraphs and targets next execution nodes.
+        """
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        training_graphs = []
+        all_nodes = set()
+
+        for composition in data:
+            id_to_mid = {}
+            for node in composition["nodes"]:
+                node_id = str(node["id"])
+                if node.get("mid") is not None:
+                    node_name = f"service_{node['mid']}"
+                else:
+                    node_name = f"table_{node['id']}"
+                id_to_mid[node_id] = node_name
+                all_nodes.add(node_name)
+                
+            local_dag = nx.DiGraph()
+            for link in composition["links"]:
+                src = id_to_mid[str(link["source"])]
+                tgt = id_to_mid[str(link["target"])]
+                local_dag.add_edge(src, tgt)
+                
+            try:
+                topo_order = list(nx.topological_sort(local_dag))
+            except nx.NetworkXUnfeasible:
+                continue # Skip cyclic graphs
+                
+            for i in range(1, len(topo_order)):
+                executed_nodes = topo_order[:i]
+                
+                # Active subgraph: edges between currently executed nodes only
+                sub_edges = [(u, v) for u, v in local_dag.edges if u in executed_nodes and v in executed_nodes]
+                
+                # Targets: Valid next nodes are those whose parents are all in executed_nodes
+                # (Meaning they are fully ready to be executed now)
+                valid_next = [
+                    n for n in local_dag.nodes 
+                    if n not in executed_nodes and all(pred in executed_nodes for pred in local_dag.predecessors(n))
+                ]
+                
+                if not valid_next:
+                    continue
+                    
+                training_graphs.append({
+                    "nodes": list(executed_nodes),
+                    "edges": list(sub_edges),
+                    "targets": list(valid_next)
+                })
+                        
+        return training_graphs, list(all_nodes)
+        
     def _extract_sequences(self, json_path: Path) -> Tuple[List[List[str]], List[str]]:
+        """Legacy sequence flattener (kept for backward compatibility)"""
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
@@ -338,7 +393,6 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
                     node_name = f"service_{node['mid']}"
                 else:
                     node_name = f"table_{node['id']}"
-                    
                 id_to_mid[node_id] = node_name
                 all_nodes.add(node_name)
                 
@@ -357,12 +411,12 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
                         
         return paths, list(all_nodes)
         
-    def _calculate_popularities(self, paths: List[List[str]]):
+    def _calculate_popularities(self, graphs: List[Dict]):
         services_counter = collections.Counter()
         tables_counter = collections.Counter()
         
-        for path in paths:
-            for item in path:
+        for g in graphs:
+            for item in g["targets"]:
                 if item.startswith("service_"):
                     services_counter[int(item.split("_")[1])] += 1
                 elif item.startswith("table_"):
@@ -424,10 +478,10 @@ class DAGTransformerAlgorithm(RecommendationAlgorithm):
             self.popular_tables = md['popular_tables']
             
             checkpoint = torch.load(self.model_path)
-            self.model = SequenceTransformerRecommender(
+            self.model = GraphGPSTransformerRecommender(
                 num_nodes=checkpoint['num_nodes'],
                 d_model=checkpoint['d_model'],
-                nhead=checkpoint['nhead'],
+                heads=checkpoint['nhead'],
                 num_layers=checkpoint['num_layers']
             )
             self.model.load_state_dict(checkpoint['model_state_dict'])
