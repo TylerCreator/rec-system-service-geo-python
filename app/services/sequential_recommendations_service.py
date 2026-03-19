@@ -6,50 +6,61 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.recommendations.algorithms import SequentialDAGNNAlgorithm
+from app.services.recommendations.algorithms.sr_gnn import SRGNNAlgorithm
+from app.services.recommendations.algorithms.dag_transformer import DAGTransformerAlgorithm
 
 
-# Global instance
-_sequential_engine: Optional[SequentialDAGNNAlgorithm] = None
+# Global instances registry
+_sequential_engines: Dict[str, Any] = {}
 
 
-def get_sequential_engine(db: AsyncSession) -> SequentialDAGNNAlgorithm:
+def get_sequential_engine(db: AsyncSession, model_name: str = "dagnn") -> Any:
     """
     Get or create sequential recommendation engine
     
     Args:
         db: Database session
+        model_name: "dagnn", "sr-gnn", or "dag-transformer"
         
     Returns:
-        SequentialDAGNNAlgorithm instance
+        RecommendationAlgorithm instance
     """
-    global _sequential_engine
+    global _sequential_engines
     
-    if _sequential_engine is None:
-        _sequential_engine = SequentialDAGNNAlgorithm(db=db)
-    
-    return _sequential_engine
+    if model_name not in _sequential_engines:
+        if model_name == "dagnn":
+            _sequential_engines[model_name] = SequentialDAGNNAlgorithm(db=db)
+        elif model_name == "sr-gnn":
+            _sequential_engines[model_name] = SRGNNAlgorithm(db=db)
+        elif model_name == "dag-transformer":
+            _sequential_engines[model_name] = DAGTransformerAlgorithm(db=db)
+        else:
+            raise ValueError(f"Unknown sequential model: {model_name}")
+            
+    return _sequential_engines[model_name]
 
 
 async def initialize_sequential_engine(db: AsyncSession):
     """
-    Initialize sequential recommendation engine
+    Initialize all sequential recommendation engines
     
     Args:
         db: Database session
     """
-    engine = get_sequential_engine(db)
-    
-    # Try to load saved model first
-    if engine._load_model():
-        print("✓ Sequential DAGNN model loaded from disk")
-    else:
-        print("⚠️  No saved model found. Please train using /sequential/train")
+    models = ["dagnn", "sr-gnn", "dag-transformer"]
+    for model_name in models:
+        engine = get_sequential_engine(db, model_name=model_name)
+        if engine._load_model():
+            print(f"✓ Sequential {model_name} model loaded from disk")
+        else:
+            print(f"⚠️  No saved {model_name} model found. Please train using /sequential/train")
 
 
 async def predict_next_service(
     sequence: List[int],
     n: int = 5,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    model: str = "dagnn"
 ) -> Dict[str, Any]:
     """
     Predict next services in a workflow sequence
@@ -58,6 +69,7 @@ async def predict_next_service(
         sequence: List of service IDs in current sequence
         n: Number of predictions
         db: Database session
+        model: Algorithm to use ("dagnn", "sr-gnn", "dag-transformer")
         
     Returns:
         Predictions with scores
@@ -65,7 +77,7 @@ async def predict_next_service(
     if db is None:
         raise ValueError("Database session required")
     
-    engine = get_sequential_engine(db)
+    engine = get_sequential_engine(db, model_name=model)
     
     if not engine.is_trained:
         # Try to load model
@@ -92,14 +104,15 @@ async def predict_next_service(
             for rec in recommendations
         ],
         "count": len(recommendations),
-        "algorithm": "sequential_dagnn"
+        "algorithm": model
     }
 
 
 async def predict_next_service_ids_only(
     sequence: List[int],
     n: int = 5,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    model: str = "dagnn"
 ) -> List[int]:
     """
     Predict next services (IDs only)
@@ -108,11 +121,12 @@ async def predict_next_service_ids_only(
         sequence: List of service IDs in current sequence
         n: Number of predictions
         db: Database session
+        model: Algorithm name
         
     Returns:
         List of service IDs
     """
-    result = await predict_next_service(sequence, n, db)
+    result = await predict_next_service(sequence, n, db, model)
     
     if "error" in result:
         return []
@@ -157,26 +171,30 @@ async def get_possible_next_services(
     }
 
 
-async def train_sequential_model(db: AsyncSession) -> Dict[str, Any]:
+async def train_sequential_model(db: AsyncSession, model_name: Optional[str] = None) -> Dict[str, Any]:
     """
-    Train sequential recommendation model
+    Train sequential recommendation models
     
     Args:
         db: Database session
+        model_name: Optional, specific model to train. If None, trains all.
         
     Returns:
         Training status
     """
     try:
-        engine = get_sequential_engine(db)
+        models_to_train = [model_name] if model_name else ["dagnn", "sr-gnn", "dag-transformer"]
+        results = []
         
-        # Train model
-        await engine.train(data=db)
+        for name in models_to_train:
+            engine = get_sequential_engine(db, model_name=name)
+            await engine.train(data=db)
+            results.append(engine.get_info())
         
         return {
             "success": True,
-            "message": "Sequential model trained successfully",
-            "model_info": engine.get_info()
+            "message": f"Sequential models ({', '.join(models_to_train)}) trained successfully",
+            "model_info": results
         }
         
     except Exception as e:
@@ -187,24 +205,26 @@ async def train_sequential_model(db: AsyncSession) -> Dict[str, Any]:
         }
 
 
-async def get_sequential_model_info(db: AsyncSession) -> Dict[str, Any]:
+async def get_sequential_model_info(db: AsyncSession, model_name: str = "dagnn") -> Dict[str, Any]:
     """
     Get information about sequential model
     
     Args:
         db: Database session
+        model_name: model to check
         
     Returns:
         Model information
     """
-    engine = get_sequential_engine(db)
+    engine = get_sequential_engine(db, model_name=model_name)
     return engine.get_info()
 
 
 async def predict_next_table(
     table_sequence: List[int],
     n: int = 5,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    model: str = "dagnn"
 ) -> Dict[str, Any]:
     """
     Predict next tables in a dataset workflow sequence
@@ -216,6 +236,7 @@ async def predict_next_table(
         table_sequence: List of table/dataset IDs in current sequence
         n: Number of predictions
         db: Database session
+        model: Algorithm
         
     Returns:
         Predictions with scores
@@ -223,7 +244,7 @@ async def predict_next_table(
     if db is None:
         raise ValueError("Database session required")
     
-    engine = get_sequential_engine(db)
+    engine = get_sequential_engine(db, model_name=model)
     
     if not engine.is_trained:
         if not engine._load_model():
@@ -249,7 +270,7 @@ async def predict_next_table(
             for rec in recommendations
         ],
         "count": len(recommendations),
-        "algorithm": "sequential_dagnn",
+        "algorithm": model,
         "type": "table_recommendations"
     }
 
@@ -257,7 +278,8 @@ async def predict_next_table(
 async def predict_next_table_ids_only(
     table_sequence: List[int],
     n: int = 5,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    model: str = "dagnn"
 ) -> List[int]:
     """
     Predict next tables (IDs only)
@@ -266,11 +288,12 @@ async def predict_next_table_ids_only(
         table_sequence: List of table IDs in current sequence
         n: Number of predictions
         db: Database session
+        model: Algorithm
         
     Returns:
         List of table IDs
     """
-    result = await predict_next_table(table_sequence, n, db)
+    result = await predict_next_table(table_sequence, n, db, model)
     
     if "error" in result:
         return []

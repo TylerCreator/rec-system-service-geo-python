@@ -19,11 +19,17 @@ def safe_json_parse(json_string: Any, default_value: Any = None) -> Any:
     """
     if default_value is None:
         default_value = {}
+        
+    if not isinstance(json_string, str):
+        return json_string if json_string is not None else default_value
+        
+    if not json_string.strip():
+        return default_value
     
     try:
-        return json.loads(json_string) if isinstance(json_string, str) else json_string
+        return json.loads(json_string)
     except Exception as e:
-        print(f"Error parsing JSON: {e}")
+        # Suppress log spam, but return default value
         return default_value
 
 

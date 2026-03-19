@@ -64,8 +64,25 @@ async def update_services(db: AsyncSession):
     url = f"{base_url}?f=185&count_rows=true&iDisplayStart=0&iDisplayLength=1"
     
     async with httpx.AsyncClient(timeout=settings.API_TIMEOUT) as client:
-        response = await client.post(url, json=request_data)
-        response_data = response.json()
+        # CRIS can be slow/unreliable; do a few retries and allow POST→GET fallback.
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = await client.post(url, json=request_data)
+                response_data = response.json()
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                try:
+                    response = await client.get(url)
+                    response_data = response.json()
+                    last_err = None
+                    break
+                except Exception as e2:
+                    last_err = e2
+        if last_err is not None:
+            raise last_err
     
     total_records = int(response_data.get("iTotalDisplayRecords", 0))
     
@@ -83,10 +100,30 @@ async def update_services(db: AsyncSession):
         while i_display_start < total_records:
             print(f"services update counter {counter}")
             
-            url = f"{base_url}?f=185&count_rows=true&unique=undefined&count_rows=1&iDisplayStart={i_display_start}&iDisplayLength={i_display_start + display_length}"
+            # NOTE: iDisplayLength must be a fixed page size, not cumulative.
+            url = f"{base_url}?f=185&count_rows=true&iDisplayStart={i_display_start}&iDisplayLength={display_length}"
             
-            response = await client.post(url, json=request_data)
-            data = response.json().get("aaData", [])
+            # Retry + POST→GET fallback for each page
+            last_err = None
+            data = None
+            for attempt in range(3):
+                try:
+                    response = await client.post(url, json=request_data)
+                    data = response.json().get("aaData", [])
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    try:
+                        response = await client.get(url)
+                        data = response.json().get("aaData", [])
+                        last_err = None
+                        break
+                    except Exception as e2:
+                        last_err = e2
+
+            if last_err is not None:
+                raise last_err
             
             if not data:
                 print("services data empty")

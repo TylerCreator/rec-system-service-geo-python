@@ -6,18 +6,18 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13+-blue.svg)](https://www.postgresql.org/)
 
-## 📋 Описание
+##  Описание
 
 API-сервис для системы рекомендаций геопространственных сервисов. Система:
 
-- 🔍 **Анализирует** историю вызовов сервисов пользователями
-- 🔗 **Восстанавливает** композиции сервисов (workflows) из истории
-- 🤖 **Рекомендует** сервисы на основе ML (KNN, popularity-based + расширяемо)
-- ⚡ **Быстрые рекомендации** с кэшированием (10-50ms против 2-5s)
-- 📊 **Собирает** статистику использования
-- 🔄 **Автоматически обновляет** данные по расписанию (cron)
+-  **Анализирует** историю вызовов сервисов пользователями
+-  **Восстанавливает** композиции сервисов (workflows) из истории
+-  **Рекомендует** сервисы на основе ML (KNN, popularity-based + расширяемо)
+-  **Быстрые рекомендации** с кэшированием (10-50ms против 2-5s)
+-  **Собирает** статистику использования
+-  **Автоматически обновляет** данные по расписанию (cron)
 
-## 🚀 Быстрый старт
+##  Быстрый старт
 
 ### Запуск с Docker (рекомендуется)
 
@@ -52,14 +52,14 @@ python main.py
 
 После запуска доступны:
 
-- **📚 API Docs (Swagger):** http://localhost:6868/docs
-- **📖 ReDoc:** http://localhost:6868/redoc
-- **❤️ Health Check:** http://localhost:6868/
+- ** API Docs (Swagger):** http://localhost:6868/docs
+- ** ReDoc:** http://localhost:6868/redoc
+- ** Health Check:** http://localhost:6868/
 
 ### Ключевые API методы
 
 ```bash
-# 🆕 Рекомендации для пользователя (новый API v2)
+#  Рекомендации для пользователя (новый API v2)
 GET /services/recommendations/{user_id}?n=10&algorithm=knn
 
 # Пакетные рекомендации
@@ -68,7 +68,7 @@ POST /services/recommendations/batch
 # Статистика системы рекомендаций
 GET /services/recommendations/stats
 
-# 🔮 Последовательные рекомендации (workflow)
+#  Последовательные рекомендации (workflow)
 POST /sequential/predict         # Предсказать следующий сервис
 POST /sequential/possible        # Возможные следующие сервисы (из DAG)
 POST /sequential/tables/predict  # Предсказать следующую таблицу
@@ -84,14 +84,14 @@ GET /compositions/recover
 # Полное обновление данных
 GET /update/full
 
-# ⚠️ Legacy эндпоинты (deprecated)
+#  Legacy эндпоинты (deprecated)
 GET /services/legacy/getRecomendations?user_id={id}
 GET /services/legacy/getRecomendation?user_id={id}
 ```
 
-> 💡 **Совет:** Используйте новый API `/services/recommendations/{user_id}` вместо устаревшего `/services/legacy/getRecomendations`. Новый API в 40-100 раз быстрее!
+>  **Совет:** Используйте новый API `/services/recommendations/{user_id}` вместо устаревшего `/services/legacy/getRecomendations`. Новый API в 40-100 раз быстрее!
 
-## 📁 Структура проекта
+##  Структура проекта
 
 ```
 rec-system-services-geo-python/
@@ -107,13 +107,13 @@ rec-system-services-geo-python/
 │   │   ├── services.py
 │   │   ├── compositions.py
 │   │   ├── update.py
-│   │   └── sequential.py       # 🆕 Sequential recommendations
+│   │   └── sequential.py       #  Sequential recommendations
 │   ├── services/                # Бизнес-логика
 │   │   ├── calls_service.py
 │   │   ├── compositions_service.py
-│   │   ├── recommendations_service.py  # 🆕 Новый сервис
-│   │   ├── sequential_recommendations_service.py  # 🆕 Sequential сервис
-│   │   ├── recommendations/     # 🆕 Модульная архитектура ML
+│   │   ├── recommendations_service.py  #  Новый сервис
+│   │   ├── sequential_recommendations_service.py  #  Sequential сервис
+│   │   ├── recommendations/     #  Модульная архитектура ML
 │   │   │   ├── engine.py       # Движок рекомендаций
 │   │   │   ├── data_loader.py  # Загрузка данных с кэшем
 │   │   │   ├── cache.py        # LRU кэш
@@ -121,7 +121,7 @@ rec-system-services-geo-python/
 │   │   │   │   ├── knn.py                  # KNN collaborative filtering
 │   │   │   │   ├── popularity.py           # Popularity-based
 │   │   │   │   ├── analytics_popularity.py # Real-time analytics
-│   │   │   │   └── sequential_dagnn.py     # 🆕 DAGNN для workflow
+│   │   │   │   └── sequential_dagnn.py     #  DAGNN для workflow
 │   │   │   └── models/         # Data models
 │   │   │       ├── recommendation.py
 │   │   │       └── user_profile.py
@@ -141,7 +141,7 @@ rec-system-services-geo-python/
     └── migration.md
 ```
 
-## ⚙️ Конфигурация
+##  Конфигурация
 
 Основные переменные окружения в `.env`:
 
@@ -176,11 +176,11 @@ RECOMMENDATIONS_FILE_PATH=app/static/recomendations.json
 KNN_SCRIPT_PATH=app/static/knn.py
 ```
 
-> **⚠️ Важно для production:** Замените `root` на сильный пароль (минимум 32 символа) в обоих местах: `POSTGRESDB_ROOT_PASSWORD` и `DB_PASSWORD`!
+> ** Важно для production:** Замените `root` на сильный пароль (минимум 32 символа) в обоих местах: `POSTGRESDB_ROOT_PASSWORD` и `DB_PASSWORD`!
 
 Подробнее: [docs/configuration.md](docs/configuration.md)
 
-## 🐳 Docker
+##  Docker
 
 ### Локальная разработка
 
@@ -207,7 +207,7 @@ docker-compose -f docker-compose-v2.yml ps
 
 Подробнее: [docs/deployment.md](docs/deployment.md)
 
-## 🔄 Обновление данных
+##  Обновление данных
 
 Система автоматически обновляет данные по расписанию:
 
@@ -228,7 +228,7 @@ curl http://localhost:6868/update/statistics
 curl http://localhost:6868/compositions/recover
 ```
 
-## 🤖 Машинное обучение
+##  Машинное обучение
 
 ### Новая архитектура рекомендаций (v2)
 
@@ -245,21 +245,23 @@ curl http://localhost:6868/compositions/recover
 - Быстрый и простой алгоритм
 - **Используется для:** новых пользователей (cold start)
 
-#### 3. **Sequential DAGNN (Graph Neural Network)**
-- Предсказывает следующий сервис/таблицу в workflow
-- Основан на DAG структуре композиций
-- Использует Graph Neural Networks (DAGNN)
+#### 3. **Sequential Recomendations (True Graph Models)**
+- Предсказывает следующий сервис или таблицу на основе истории вызовов и структуры рабочих процессов (workflows).
+- Поддерживает 3 алгоритма на выбор (параметр `model`):
+  - **DAGNN** - базовый алгоритм на основе Graph Neural Networks.
+  - **SR-GNN (Session-based Graph Neural Network)** - анализирует подкоманды (сессии графов) с использованием механизма внимания (Attention) на основе нативных матричных операций.
+  - **DAGTransformer (GraphGPS)** - SOTA алгоритм, объединяющий глубокое понимание графов через Message Passing (`GINConv`) и глобальное внимание трансформера (`GPSConv`).
 - **Два режима:**
   - Services: предсказание следующего сервиса
   - Tables: предсказание следующей таблицы (игнорирует промежуточные сервисы)
-- **Используется для:** продолжения существующих последовательностей
+- **Используется для:** генерации сложных многоканальных сценариев с параллельным ветвлением.
 
 #### Ключевые преимущества:
-- ⚡ **Быстро:** 10-50ms вместо 2-5 секунд
-- 💾 **Кэш:** LRU cache с TTL для мгновенных повторных запросов
+-  **Быстро:** 10-50ms вместо 2-5 секунд
+-  **Кэш:** LRU cache с TTL для мгновенных повторных запросов
 - 🎯 **Умный выбор:** автоматический fallback для новых пользователей
 - 🔧 **Расширяемо:** легко добавлять новые алгоритмы
-- 📊 **Метрики:** встроенный мониторинг и статистика
+-  **Метрики:** встроенный мониторинг и статистика
 
 #### Примеры использования:
 
@@ -270,23 +272,23 @@ curl "http://localhost:8080/services/recommendations/user123"
 # Явный выбор алгоритма
 curl "http://localhost:8080/services/recommendations/user123?algorithm=knn"
 
-# Последовательные рекомендации (следующий сервис в workflow)
+# Последовательные рекомендации (следующий сервис в workflow, по умолчанию dagnn)
 curl -X POST "http://localhost:8080/sequential/predict" \
   -H "Content-Type: application/json" \
-  -d '{"sequence": [123, 456, 789], "n": 5}'
+  -d '{"sequence": [123, 456, 789], "n": 5, "model": "dag-transformer"}'
 
 # Последовательные рекомендации таблиц (следующая таблица в workflow)
 curl -X POST "http://localhost:8080/sequential/tables/predict" \
   -H "Content-Type: application/json" \
-  -d '{"table_sequence": [1002120, 1001211], "n": 5, "ids_only": true}'
+  -d '{"table_sequence": [1002120, 1001211], "n": 5, "ids_only": true, "model": "sr-gnn"}'
 ```
 
 #### Инициализация:
 Модели автоматически инициализируются при старте приложения:
 ```bash
 python main.py
-# ✅ Recommendation engine initialized
-# ✅ Sequential DAGNN engine initialized
+#  Recommendation engine initialized
+#  Sequential DAGNN engine initialized
 ```
 
 Обновление моделей:
@@ -301,7 +303,7 @@ curl -X POST "http://localhost:8080/sequential/train"
 curl "http://localhost:8080/update/full"
 ```
 
-## 📊 Композиции сервисов
+##  Композиции сервисов
 
 Система восстанавливает workflows из истории вызовов:
 
@@ -314,7 +316,7 @@ curl "http://localhost:8080/update/full"
 - Поддержка сервиса mapcombine (ID: 399)
 - Отслеживание промежуточных результатов через `edit` виджеты
 
-## 🧪 Тестирование
+##  Тестирование
 
 ```bash
 # Проверка здоровья
@@ -327,7 +329,7 @@ curl http://localhost:6868/services/statistics
 curl http://localhost:6868/services/recomendation/50f7a1d80d58140037000006
 ```
 
-## 📚 Документация
+##  Документация
 
 ### Основная
 - **[Быстрый старт](docs/quickstart.md)** - детальная инструкция по запуску
@@ -336,12 +338,12 @@ curl http://localhost:6868/services/recomendation/50f7a1d80d58140037000006
 - **[API](docs/api.md)** - описание эндпоинтов
 - **[Миграция](docs/migration.md)** - переход с Node.js версии
 
-### 🆕 Система рекомендаций
+###  Система рекомендаций
 - **[Архитектура](docs/recommendations_architecture.md)** - дизайн новой системы
 - **[Использование](docs/recommendations_usage.md)** - примеры и best practices
 - **[Миграция на v2](docs/recommendations_migration.md)** - переход на новый API
 
-## 🛠 Технологии
+##  Технологии
 
 - **[FastAPI](https://fastapi.tiangolo.com/)** - современный веб-фреймворк
 - **[SQLAlchemy](https://www.sqlalchemy.org/)** - ORM для работы с БД
@@ -380,45 +382,52 @@ curl http://localhost:6868/services/recomendation/50f7a1d80d58140037000006
 
 Пример: см. [docs/development.md](docs/development.md)
 
-## 📝 Changelog
+##  Changelog
+
+### v2.2.0 (Текущая версия) - True Graph Models (SOTA GraphGPS & SR-GNN)
+-   **GraphGPS (DAGTransformer)** - Интеграция State-of-the-Art архитектуры графовых трансформеров из PyTorch Geometric (`GPSConv`, `GINConv`). 
+-   **SR-GNN (Session-based Graph Neural Network)** - Внедрена модель рекомендаций, основанная на сессионных графах с механизмом локального и глобального внимания (`Local/Global Intent`).
+-   **Инкрементальные подграфы** - Переход от простых плоских последовательностей (Sequences) к честным топологическим графам (`target nodes`, `edge_index`, `Data`/`Batch` objects). Учитываются развилки и параллельные сценарии (`BCEWithLogitsLoss`).
+-   **Мультимодельный роутинг** - Все эндпоинты (`/sequential/predict`, `/sequential/tables/predict`, `/sequential/train`) теперь принимают параметр `model` (`dagnn`, `sr-gnn`, `dag-transformer`). Обучение по Cron (в `/update/full`) последовательно тренирует все модели.
+-   **Bugfixes** - Исправлен краш `matmul primitive` на CPU (ONEDNN) и спам из-за парсинга пустых JSON-строк.
 
 ### v2.1.0 (2025-10-19) - Sequential DAGNN рекомендации
 
-- ✅ 🔮 **Sequential рекомендации** на основе Graph Neural Networks
-- ✅ 🧠 **DAGNN алгоритм** для предсказания следующего сервиса/таблицы в workflow
-- ✅ 🔗 **DAG-based** - использует структуру композиций из recover_new()
-- ✅ 🎯 **Strict continuation** - только существующие связи в DAG
-- ✅ 📊 **Table-based режим** - анализ только таблиц (игнорирует промежуточные сервисы)
-- ✅ 📏 **Умная оценка** - учитывает distance, frequency и ML predictions
-- ✅ 📦 **PyTorch + PyTorch Geometric** - современный deep learning
-- ✅ 🔄 **Автообновление** - обучение в /update/full
-- ✅ 💾 **Сохранение моделей** - быстрая загрузка при старте
+-   **Sequential рекомендации** на основе Graph Neural Networks
+-   **DAGNN алгоритм** для предсказания следующего сервиса/таблицы в workflow
+-   **DAG-based** - использует структуру композиций из recover_new()
+-  🎯 **Strict continuation** - только существующие связи в DAG
+-   **Table-based режим** - анализ только таблиц (игнорирует промежуточные сервисы)
+-   **Умная оценка** - учитывает distance, frequency и ML predictions
+-   **PyTorch + PyTorch Geometric** - современный deep learning
+-   **Автообновление** - обучение в /update/full
+-   **Сохранение моделей** - быстрая загрузка при старте
 
 ### v2.0.0 (2025-10-12) - Новая система рекомендаций
 
-- ✅ 🚀 **Новая архитектура рекомендаций** с множественными алгоритмами
-- ✅ ⚡ **40-100x ускорение** рекомендаций (10-50ms вместо 2-5s)
-- ✅ 💾 **LRU кэш** с TTL для мгновенных повторных запросов
-- ✅ 🤖 **Умный выбор алгоритма** на основе профиля пользователя
-- ✅ 🔧 **Модульная архитектура** - легко добавлять новые алгоритмы
-- ✅ 📊 **Встроенный мониторинг** и статистика системы
-- ✅ 🔄 **Обратная совместимость** со старыми эндпоинтами
-- ✅ 🎯 **ids_only режим** - гибкий формат ответа
+-   **Новая архитектура рекомендаций** с множественными алгоритмами
+-   **40-100x ускорение** рекомендаций (10-50ms вместо 2-5s)
+-   **LRU кэш** с TTL для мгновенных повторных запросов
+-   **Умный выбор алгоритма** на основе профиля пользователя
+-  🔧 **Модульная архитектура** - легко добавлять новые алгоритмы
+-   **Встроенный мониторинг** и статистика системы
+-   **Обратная совместимость** со старыми эндпоинтами
+-  🎯 **ids_only режим** - гибкий формат ответа
 
 ### v1.0.0 (2025-10-10)
 
-- ✅ Полная миграция с Node.js на Python/FastAPI
-- ✅ Поддержка композиций сервиса mapcombine (ID: 399)
-- ✅ Улучшенная обработка WMS-сервисов
-- ✅ Реорганизация статических файлов в `app/static/`
-- ✅ Обновленная документация
+-  Полная миграция с Node.js на Python/FastAPI
+-  Поддержка композиций сервиса mapcombine (ID: 399)
+-  Улучшенная обработка WMS-сервисов
+-  Реорганизация статических файлов в `app/static/`
+-  Обновленная документация
 
-## 🤝 Поддержка
+##  Поддержка
 
 По вопросам обращайтесь:
-- 📧 Email: support@icc.ru
-- 🌐 Web: http://geos.icc.ru:6868
+-  Email: support@icc.ru
+-  Web: http://geos.icc.ru:6868
 
-## 📄 Лицензия
+##  Лицензия
 
 Proprietary - © 2025 ICC RU

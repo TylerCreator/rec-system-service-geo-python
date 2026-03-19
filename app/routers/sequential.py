@@ -2,7 +2,7 @@
 Sequential recommendations router
 Endpoints for workflow-based sequential service recommendations
 """
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ async def predict_next_service(
     sequence: List[int] = Body(..., description="Current sequence of service IDs"),
     n: int = Body(5, ge=1, le=20, description="Number of predictions"),
     ids_only: bool = Body(False, description="Return only service IDs"),
+    model: str = Body("dagnn", description="Algorithm to use (dagnn, sr-gnn, dag-transformer)"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -44,13 +45,15 @@ async def predict_next_service(
         return await sequential_recommendations_service.predict_next_service_ids_only(
             sequence=sequence,
             n=n,
-            db=db
+            db=db,
+            model=model
         )
     
     return await sequential_recommendations_service.predict_next_service(
         sequence=sequence,
         n=n,
-        db=db
+        db=db,
+        model=model
     )
 
 
@@ -86,7 +89,10 @@ async def get_possible_next_services(
 
 
 @router.post("/train")
-async def train_sequential_model(db: AsyncSession = Depends(get_db)):
+async def train_sequential_model(
+    model: Optional[str] = Query(None, description="Specific model to train. If empty, trains all sequential models"),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Train sequential recommendation model
     
@@ -104,11 +110,14 @@ async def train_sequential_model(db: AsyncSession = Depends(get_db)):
     - Daily (via cron or /update/full)
     - After significant composition changes
     """
-    return await sequential_recommendations_service.train_sequential_model(db)
+    return await sequential_recommendations_service.train_sequential_model(db, model_name=model)
 
 
 @router.get("/info")
-async def get_model_info(db: AsyncSession = Depends(get_db)):
+async def get_model_info(
+    model: str = Query("dagnn", description="Algorithm to check"),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Get information about sequential recommendation model
     
@@ -118,7 +127,7 @@ async def get_model_info(db: AsyncSession = Depends(get_db)):
     - Model parameters
     - Training info
     """
-    return await sequential_recommendations_service.get_sequential_model_info(db)
+    return await sequential_recommendations_service.get_sequential_model_info(db, model_name=model)
 
 
 @router.get("/health")
@@ -145,6 +154,7 @@ async def predict_next_table(
     table_sequence: List[int] = Body(..., description="Current sequence of table/dataset IDs"),
     n: int = Body(5, ge=1, le=20, description="Number of predictions"),
     ids_only: bool = Body(False, description="Return only table IDs"),
+    model: str = Body("dagnn", description="Algorithm to use (dagnn, sr-gnn, dag-transformer)"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -180,13 +190,15 @@ async def predict_next_table(
         return await sequential_recommendations_service.predict_next_table_ids_only(
             table_sequence=table_sequence,
             n=n,
-            db=db
+            db=db,
+            model=model
         )
     
     return await sequential_recommendations_service.predict_next_table(
         table_sequence=table_sequence,
         n=n,
-        db=db
+        db=db,
+        model=model
     )
 
 
