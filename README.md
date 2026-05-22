@@ -48,7 +48,7 @@ cp env.example .env
 python main.py
 ```
 
-## 🎯 Основные эндпоинты
+## 🎯 Эндпоинты и интерфейс (актуально по коду)
 
 После запуска доступны:
 
@@ -56,40 +56,184 @@ python main.py
 - **📖 ReDoc:** http://localhost:6868/redoc
 - **❤️ Health Check:** http://localhost:6868/
 
-### Ключевые API методы
+### Root и admin
 
-```bash
-# 🆕 Рекомендации для пользователя (новый API v2)
-GET /services/recommendations/{user_id}?n=10&algorithm=knn
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| GET | `/` | Без параметров | `{ "message", "status", "version", "timestamp" }` |
+| GET | `/admin/run-cron` | Без параметров | `{ "message", "result", "timestamp" }` |
 
-# Пакетные рекомендации
-POST /services/recommendations/batch
+### Calls
 
-# Статистика системы рекомендаций
-GET /services/recommendations/stats
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| GET | `/calls/` | Без параметров | `Call[]` (история вызовов, сортировка по `id desc`) |
+| GET | `/calls/incr` | Без параметров | `{ "data": [...] }` |
+| GET | `/calls/update-calls` | Без параметров | `{ "message": "Calls updated successfully" }` |
+| GET | `/calls/dump-csv` | Без параметров | `{ "message": "CSV file created successfully", "status": 200 }` |
 
-# 🔮 Последовательные рекомендации (workflow)
-POST /sequential/predict         # Предсказать следующий сервис
-POST /sequential/possible        # Возможные следующие сервисы (из DAG)
-POST /sequential/tables/predict  # Предсказать следующую таблицу
-POST /sequential/tables/possible # Возможные следующие таблицы (из DAG)
-POST /sequential/train           # Обучить модель
+`Call` содержит поля: `id`, `classname`, `console_output`, `created_by`, `created_on`, `edited_by`, `edited_on`, `end_time`, `error_output`, `input`, `input_data`, `input_params`, `is_deleted`, `mid`, `os_pid`, `owner`, `result`, `start_time`, `status`.
 
-# Популярные сервисы
-GET /services/popular
+### Services
 
-# Восстановление композиций
-GET /compositions/recover
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| GET | `/services/` | Query: `user?: string`, `limit?: int` | `Service[]` |
+| GET | `/services/legacy/getRecomendations` | Query: `user_id: string` | `int[]` (deprecated) |
+| GET | `/services/legacy/getRecomendation` | Query: `user_id?: string` | `int[]` (deprecated) |
+| GET | `/services/recommendations/{user_id}` | Path: `user_id: string`; Query: `n=10 (1..100)`, `algorithm?: string`, `period?: string`, `min_calls?: int>=1`, `ids_only=false` | `RecommendationResult` или `int[]` при `ids_only=true` |
+| POST | `/services/recommendations/batch` | JSON body: `{ "user_ids": string[], "n"?: int(1..100), "algorithm"?: string, "ids_only"?: bool }` | `{ "results": {...}, "total_users", "algorithm_used" }` или `{ "userId": int[] }` |
+| GET | `/services/recommendations/algorithms` | Query: `algorithm?: string` | `{ "<algorithm>": {...} }` или `{ "error": ... }` |
+| GET | `/services/recommendations/stats` | Без параметров | `{ "is_initialized", "algorithms", "default_algorithm", "data_loader", "cache" }` |
+| POST | `/services/recommendations/refresh` | Без body | `{ "success": bool, "message": string, "stats"?: {...} }` |
+| GET | `/services/popular` | Query: `type="any"`, `limit=20`, `period="all"`, `min_calls=1`, `user_id?: string`, `ids_only=false` | `PopularResponse` или `int[]` при `ids_only=true` |
+| GET | `/services/parameters/{service_id}` | Path: `service_id: int`; Query: `user?: string`, `limit=100`, `unique="true"` | `ServiceParametersResponse` или `{ "error": "Service not found", "serviceId": ... }` |
 
-# Полное обновление данных
-GET /update/full
+`Service` содержит поля: `id`, `name`, `subject`, `type`, `description`, `number_of_calls`, `actionview`, `actionmodify`, `map_reduce_specification`, `params`, `js_body`, `wpsservers`, `wpsmethod`, `status`, `output_params`, `wms_link`, `wms_layer_name`, `is_deleted`, `created_by`, `edited_by`, `edited_on`, `created_on`, `classname`.
 
-# ⚠️ Legacy эндпоинты (deprecated)
-GET /services/legacy/getRecomendations?user_id={id}
-GET /services/legacy/getRecomendation?user_id={id}
+`RecommendationResult`:
+```json
+{
+  "user_id": "user123",
+  "recommendations": [
+    {
+      "service_id": 399,
+      "score": 0.91,
+      "algorithm": "knn",
+      "confidence": 0.87,
+      "reason": "similar users",
+      "metadata": {}
+    }
+  ],
+  "algorithm_used": "knn",
+  "fallback_used": false,
+  "execution_time_ms": 12.3,
+  "timestamp": "2026-05-22T12:00:00",
+  "count": 1,
+  "metadata": {
+    "cache_hit": false,
+    "requested_algorithm": "knn",
+    "n_requested": 10,
+    "n_returned": 1
+  }
+}
 ```
 
-> 💡 **Совет:** Используйте новый API `/services/recommendations/{user_id}` вместо устаревшего `/services/legacy/getRecomendations`. Новый API в 40-100 раз быстрее!
+`PopularResponse`:
+```json
+{
+  "items": [
+    {
+      "itemId": 1002120,
+      "originalId": 2120,
+      "itemName": "Dataset GUID",
+      "itemType": "dataset",
+      "serviceType": "table",
+      "itemDescription": "Dataset with GUID: ...",
+      "itemSubject": "",
+      "callCount": 42,
+      "uniqueUsers": 10,
+      "popularity": 4.2,
+      "rank": 1,
+      "serviceId": 1002120,
+      "serviceName": "Dataset GUID"
+    }
+  ],
+  "services": [],
+  "meta": {
+    "total_services_in_db": 120,
+    "total_datasets_in_db": 500,
+    "total_items_in_db": 620,
+    "total_successful_calls": 1000,
+    "filtered_by_type": "any",
+    "time_period": "all",
+    "filtered_by_user": null,
+    "user_specific": false,
+    "min_calls_threshold": 1,
+    "limit": 20,
+    "returned_count": 20,
+    "breakdown": {
+      "services": 12,
+      "datasets": 8
+    },
+    "time_filter_applied": false,
+    "generated_at": "2026-05-22T12:00:00"
+  }
+}
+```
+
+`ServiceParametersResponse`:
+```json
+{
+  "service": {
+    "id": 399,
+    "name": "mapcombine",
+    "description": "...",
+    "type": "service"
+  },
+  "parameters": [
+    {
+      "callId": 1,
+      "owner": "user123",
+      "timestamp": "2026-05-22T12:00:00",
+      "status": "TASK_SUCCEEDED",
+      "parameters": {}
+    }
+  ],
+  "analysis": {},
+  "setsAnalysis": {},
+  "schema": {},
+  "totalCalls": 10,
+  "returnedParameters": 5,
+  "filters": {
+    "user": null,
+    "limit": 100,
+    "unique": true
+  }
+}
+```
+
+### Datasets
+
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| GET | `/datasets/update` | Без параметров | `{ "message": "Datasets updated successfully" }` |
+
+### Compositions
+
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| GET | `/compositions/recover` | Без параметров | `{ "success", "message", "compositionsCount", "usersCount" }` |
+| GET | `/compositions/recoverNew` | Без параметров | `{ "success", "message", "compositionsCount", "serviceSequencesCount", "servicesCount", "datasetsCount" }` |
+| GET | `/compositions/` | Без параметров | `{ "id", "nodes", "links" }[]` |
+| GET | `/compositions/stats` | Без параметров | `{ "totalCompositions", "totalNodes", "avgNodesPerComposition", "topServices" }` |
+
+### Update
+
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| GET | `/update/all` | Без параметров | `{ "message", "results": string[], "timestamp" }` |
+| GET | `/update/recomendations` | Без параметров | `{ "success", "message"/"error", "timestamp", ... }` |
+| GET | `/update/statistic` | Без параметров | `{ "success", "message", "result", "timestamp" }` |
+| GET | `/update/full` | Без параметров | `{ "success", "message", "executionTime", "results", "hasErrors", "timestamp" }` |
+| GET | `/update/local` | Без параметров | `{ "message", "result", "timestamp" }` |
+
+### Sequential recommendations
+
+| Method | Path | Интерфейс | Ответ |
+| --- | --- | --- | --- |
+| POST | `/sequential/predict` | JSON body: `{ "sequence": int[], "n"?: int(1..20), "ids_only"?: bool }` | `{ "sequence", "next_services", "count", "algorithm" }` или `int[]` |
+| POST | `/sequential/possible` | JSON body: `{ "sequence": int[] }` | `{ "sequence", "possible_next_services", "count", "source" }` |
+| POST | `/sequential/train` | Без body | `{ "success", "message", "model_info" }` |
+| GET | `/sequential/info` | Без параметров | `model_info` (словарь параметров/статуса модели) |
+| GET | `/sequential/health` | Без параметров | `{ "status", "model_loaded", "dag_available", "nodes_count" }` |
+| POST | `/sequential/tables/predict` | JSON body: `{ "table_sequence": int[], "n"?: int(1..20), "ids_only"?: bool }` | `{ "table_sequence", "next_tables", "count", "algorithm", "type" }` или `int[]` |
+| POST | `/sequential/tables/possible` | JSON body: `{ "table_sequence": int[] }` | `{ "table_sequence", "possible_next_tables", "count", "source", "type" }` |
+
+### Примечания
+
+- Для неизвестных путей API возвращает `404` с телом: `{ "message": "страница не найдена" }`.
+- ⚠️ Legacy-маршруты `/services/legacy/getRecomendations` и `/services/legacy/getRecomendation` оставлены для обратной совместимости.
 
 ## 📁 Структура проекта
 
@@ -222,7 +366,7 @@ docker-compose -f docker-compose-v2.yml ps
 curl http://localhost:6868/update/full
 
 # Только статистика
-curl http://localhost:6868/update/statistics
+curl http://localhost:6868/update/statistic
 
 # Восстановление композиций
 curl http://localhost:6868/compositions/recover
@@ -320,11 +464,11 @@ curl "http://localhost:8080/update/full"
 # Проверка здоровья
 curl http://localhost:6868/
 
-# Получение статистики
-curl http://localhost:6868/services/statistics
+# Статистика движка рекомендаций
+curl http://localhost:6868/services/recommendations/stats
 
 # Рекомендации для пользователя
-curl http://localhost:6868/services/recomendation/50f7a1d80d58140037000006
+curl http://localhost:6868/services/recommendations/50f7a1d80d58140037000006
 ```
 
 ## 📚 Документация
