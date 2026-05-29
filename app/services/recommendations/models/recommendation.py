@@ -16,10 +16,12 @@ class Recommendation:
     reason: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, is_dataset: bool = False) -> Dict[str, Any]:
         """Convert to dictionary"""
+        key_name = "dataset_id" if is_dataset else "service_id"
+        key_value = self.service_id - 1000000 if is_dataset and self.service_id >= 1000000 else self.service_id
         return {
-            "service_id": self.service_id,
+            key_name: key_value,
             "score": round(self.score, 4),
             "algorithm": self.algorithm,
             "confidence": round(self.confidence, 4),
@@ -39,11 +41,11 @@ class RecommendationResult:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = field(default_factory=dict)
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, is_dataset: bool = False) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
             "user_id": self.user_id,
-            "recommendations": [rec.to_dict() for rec in self.recommendations],
+            "recommendations": [rec.to_dict(is_dataset=is_dataset) for rec in self.recommendations],
             "algorithm_used": self.algorithm_used,
             "fallback_used": self.fallback_used,
             "execution_time_ms": round(self.execution_time_ms, 2),

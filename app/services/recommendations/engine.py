@@ -97,7 +97,7 @@ class RecommendationEngine:
         
         # Analytics popularity algorithm (non-personalized - real-time DB queries)
         if db:
-            analytics_pop = AnalyticsPopularityAlgorithm(db=db)
+            analytics_pop = AnalyticsPopularityAlgorithm(db=db, data_loader=self.data_loader)
             await analytics_pop.train()
             self.algorithms["analytics_popularity"] = analytics_pop
             print("Analytics popularity algorithm initialized")
@@ -111,7 +111,10 @@ class RecommendationEngine:
         n: int = 10,
         algorithm: Optional[str] = None,
         use_cache: bool = True,
-        exclude_services: Optional[List[int]] = None
+        exclude_services: Optional[List[int]] = None,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> RecommendationResult:
         """
         Get recommendations for a user
@@ -122,6 +125,9 @@ class RecommendationEngine:
             algorithm: Algorithm to use (None for auto-select)
             use_cache: Use cached results if available
             exclude_services: Services to exclude
+            is_dataset: True if recommending datasets, False for services
+            dataset_id: Optional dataset filter for service recommendations
+            service_id: Optional service filter for dataset recommendations
             
         Returns:
             RecommendationResult with recommendations and metadata
@@ -132,7 +138,7 @@ class RecommendationEngine:
         start_time = time.time()
         
         # Check cache
-        cache_key = f"rec:{user_id}:{n}:{algorithm}:{','.join(map(str, exclude_services or []))}"
+        cache_key = f"rec:{user_id}:{n}:{algorithm}:{is_dataset}:{dataset_id}:{service_id}:{','.join(map(str, exclude_services or []))}"
         if use_cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
@@ -154,7 +160,10 @@ class RecommendationEngine:
             recommendations = await algo.recommend(
                 user_id=user_id,
                 n=n,
-                exclude_services=exclude_services
+                exclude_services=exclude_services,
+                is_dataset=is_dataset,
+                dataset_id=dataset_id,
+                service_id=service_id
             )
         except Exception as e:
             print(f"Error with {selected_algorithm}: {e}. Using fallback...")
@@ -163,7 +172,10 @@ class RecommendationEngine:
             recommendations = await algo.recommend(
                 user_id=user_id,
                 n=n,
-                exclude_services=exclude_services
+                exclude_services=exclude_services,
+                is_dataset=is_dataset,
+                dataset_id=dataset_id,
+                service_id=service_id
             )
             selected_algorithm = "popularity"
             fallback_used = True
@@ -194,7 +206,10 @@ class RecommendationEngine:
         self,
         user_ids: List[str],
         n: int = 10,
-        algorithm: Optional[str] = None
+        algorithm: Optional[str] = None,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> Dict[str, RecommendationResult]:
         """
         Get recommendations for multiple users
@@ -203,6 +218,9 @@ class RecommendationEngine:
             user_ids: List of user identifiers
             n: Number of recommendations per user
             algorithm: Algorithm to use
+            is_dataset: True if recommending datasets, False for services
+            dataset_id: Optional dataset filter
+            service_id: Optional service filter
             
         Returns:
             Dictionary mapping user_id to RecommendationResult
@@ -212,7 +230,10 @@ class RecommendationEngine:
             results[user_id] = await self.recommend(
                 user_id=user_id,
                 n=n,
-                algorithm=algorithm
+                algorithm=algorithm,
+                is_dataset=is_dataset,
+                dataset_id=dataset_id,
+                service_id=service_id
             )
         return results
     
@@ -274,7 +295,7 @@ class RecommendationEngine:
         
         # Re-initialize analytics_popularity if we have DB now and didn't before
         if db and "analytics_popularity" not in self.algorithms:
-            analytics_pop = AnalyticsPopularityAlgorithm(db=db)
+            analytics_pop = AnalyticsPopularityAlgorithm(db=db, data_loader=self.data_loader)
             await analytics_pop.train()
             self.algorithms["analytics_popularity"] = analytics_pop
             print("✓ analytics_popularity initialized")

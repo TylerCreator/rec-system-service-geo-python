@@ -61,11 +61,15 @@ class PopularityRecommendationAlgorithm(RecommendationAlgorithm):
         self.is_trained = True
         print(f"Popularity model trained. Total services: {len(self.popular_services)}")
     
+
     async def recommend(
         self,
         user_id: str,
         n: int = 10,
-        exclude_services: Optional[List[int]] = None
+        exclude_services: Optional[List[int]] = None,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> List[Recommendation]:
         """
         Generate popularity-based recommendations
@@ -74,12 +78,24 @@ class PopularityRecommendationAlgorithm(RecommendationAlgorithm):
             user_id: User identifier
             n: Number of recommendations
             exclude_services: Services to exclude
+            is_dataset: True if recommending datasets, False for services
+            dataset_id: Optional dataset filter for service recommendations
+            service_id: Optional service filter for dataset recommendations
             
         Returns:
             List of popular services as recommendations
         """
         if not self.is_trained:
             raise ValueError("Model must be trained before making recommendations")
+        
+        # Determine allowed items based on filters
+        allowed_items = None
+        if not is_dataset:
+            if dataset_id is not None:
+                allowed_items = self.data_loader.get_services_using_dataset(dataset_id)
+        else:
+            if service_id is not None:
+                allowed_items = self.data_loader.get_datasets_using_service(service_id)
         
         # Get user's used services
         user_profile = self.data_loader.get_user_profile(user_id)
@@ -92,16 +108,28 @@ class PopularityRecommendationAlgorithm(RecommendationAlgorithm):
         # Filter popular services
         recommendations = []
         for idx in self.popular_services:
-            service_id = int(self.service_ids[idx])
+            service_id_val = int(self.service_ids[idx])
             
-            # Skip if already used or excluded
-            if service_id in used_services:
+            # 1. Type filter
+            if not is_dataset and service_id_val >= 1000000:
                 continue
+            if is_dataset and service_id_val < 1000000:
+                continue
+            
+            # 2. Skip if already used or excluded
+            if service_id_val in used_services:
+                continue
+                
+            # 3. Connection mapping filter
+            if allowed_items is not None:
+                check_id = service_id_val - 1000000 if is_dataset else service_id_val
+                if check_id not in allowed_items:
+                    continue
             
             score = float(self.popularity_scores[idx])
             
             recommendations.append(Recommendation(
-                service_id=service_id,
+                service_id=service_id_val,
                 score=score,
                 algorithm=self.name,
                 confidence=0.8,  # High confidence for popular items
@@ -112,14 +140,13 @@ class PopularityRecommendationAlgorithm(RecommendationAlgorithm):
                 break
         
         return recommendations
-    
+
     def get_info(self) -> dict:
         """Get algorithm information"""
         info = super().get_info()
         info.update({
             "total_popular_services": len(self.popular_services) if self.popular_services is not None else 0
         })
-        return info
 
 
 

@@ -127,7 +127,10 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
         self,
         user_id: str,
         n: int = 10,
-        exclude_services: Optional[List[int]] = None
+        exclude_services: Optional[List[int]] = None,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> List[Recommendation]:
         """
         Generate KNN-based recommendations for a user
@@ -136,6 +139,9 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
             user_id: User identifier
             n: Number of recommendations
             exclude_services: Services to exclude
+            is_dataset: True if recommending datasets, False for services
+            dataset_id: Optional dataset filter for service recommendations
+            service_id: Optional service filter for dataset recommendations
             
         Returns:
             List of recommendations sorted by score
@@ -143,10 +149,24 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
         if not self.is_trained:
             raise ValueError("Model must be trained before making recommendations")
         
+        # Determine allowed items based on filters
+        allowed_items = None
+        if not is_dataset:
+            if dataset_id is not None:
+                allowed_items = self.data_loader.get_services_using_dataset(dataset_id)
+        else:
+            if service_id is not None:
+                allowed_items = self.data_loader.get_datasets_using_service(service_id)
+
         # Check if user exists
         if user_id not in self.user_ids:
             # Return popular services for unknown users
-            return self._get_popular_recommendations(n, exclude_services)
+            return self._get_popular_recommendations(
+                n=n,
+                exclude_services=exclude_services,
+                is_dataset=is_dataset,
+                allowed_items=allowed_items
+            )
         
         # Get user index
         user_idx = np.where(self.user_ids == user_id)[0][0]
@@ -169,29 +189,60 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
         eps = 1e-10
         sorted_indices = sorted_indices[user_predictions[sorted_indices] > eps]
         
-        # Get used service indices
-        used_service_indices = set()
-        for service in used_services:
-            if service in self.service_ids:
-                service_idx = np.where(self.service_ids == service)[0][0]
-                used_service_indices.add(service_idx)
+        # Filter sorted_indices based on item type and connection constraints
+        filtered_indices = []
+        for idx in sorted_indices:
+            item_id = int(self.service_ids[idx])
+            
+            # 1. Type filter
+            if not is_dataset and item_id >= 1000000:
+                continue
+            if is_dataset and item_id < 1000000:
+                continue
+                
+            # 2. Used/Excluded filter
+            if item_id in used_services:
+                continue
+                
+            # 3. Connection mapping filter
+            if allowed_items is not None:
+                check_id = item_id - 1000000 if is_dataset else item_id
+                if check_id not in allowed_items:
+                    continue
+                    
+            filtered_indices.append(idx)
         
-        # Filter out used services
-        sorted_indices = [idx for idx in sorted_indices if idx not in used_service_indices]
-        
-        # If not enough predictions, add popular services
-        if len(sorted_indices) < n:
-            # Get popular services that are not used and not already recommended
-            recommended_services = set(self.service_ids[sorted_indices])
-            popular_to_add = [
-                idx for idx in self.popular_services
-                if self.service_ids[idx] not in used_services
-                and self.service_ids[idx] not in recommended_services
-            ]
-            sorted_indices = list(sorted_indices) + popular_to_add
+        # If not enough predictions, add popular services/datasets
+        if len(filtered_indices) < n:
+            recommended_items = set(self.service_ids[filtered_indices])
+            popular_to_add = []
+            for idx in self.popular_services:
+                item_id = int(self.service_ids[idx])
+                
+                # Type filter
+                if not is_dataset and item_id >= 1000000:
+                    continue
+                if is_dataset and item_id < 1000000:
+                    continue
+                    
+                # Exclude already recommended, used or excluded
+                if item_id in recommended_items or item_id in used_services:
+                    continue
+                    
+                # Connection mapping filter
+                if allowed_items is not None:
+                    check_id = item_id - 1000000 if is_dataset else item_id
+                    if check_id not in allowed_items:
+                        continue
+                        
+                popular_to_add.append(idx)
+                if len(filtered_indices) + len(popular_to_add) >= n:
+                    break
+                    
+            filtered_indices = filtered_indices + popular_to_add
         
         # Take top N
-        top_indices = sorted_indices[:n]
+        top_indices = filtered_indices[:n]
         
         # Create recommendations
         recommendations = []
@@ -215,7 +266,9 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
     def _get_popular_recommendations(
         self,
         n: int,
-        exclude_services: Optional[List[int]] = None
+        exclude_services: Optional[List[int]] = None,
+        is_dataset: bool = False,
+        allowed_items: Optional[set[int]] = None
     ) -> List[Recommendation]:
         """
         Get popular services as fallback for unknown users
@@ -223,6 +276,8 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
         Args:
             n: Number of recommendations
             exclude_services: Services to exclude
+            is_dataset: True if recommending datasets, False for services
+            allowed_items: Optional set of allowed item IDs
             
         Returns:
             List of popular service recommendations
@@ -231,13 +286,25 @@ class KNNRecommendationAlgorithm(RecommendationAlgorithm):
         
         recommendations = []
         for idx in self.popular_services:
-            service_id = int(self.service_ids[idx])
+            item_id = int(self.service_ids[idx])
             
-            if service_id in exclude_set:
+            # Type filter
+            if not is_dataset and item_id >= 1000000:
+                continue
+            if is_dataset and item_id < 1000000:
                 continue
             
+            if item_id in exclude_set:
+                continue
+                
+            # Connection mapping filter
+            if allowed_items is not None:
+                check_id = item_id - 1000000 if is_dataset else item_id
+                if check_id not in allowed_items:
+                    continue
+            
             recommendations.append(Recommendation(
-                service_id=service_id,
+                service_id=item_id,
                 score=0.5,  # Default score for popular
                 algorithm=self.name,
                 confidence=0.3,
