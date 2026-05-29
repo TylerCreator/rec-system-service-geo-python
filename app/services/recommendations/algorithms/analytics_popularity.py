@@ -2,7 +2,7 @@
 Analytics-based popularity recommendation algorithm
 Uses real-time data from database without personalization
 """
-from typing import List, Optional
+from typing import List, Optional, Any, Set
 from datetime import datetime, timedelta
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +21,10 @@ class AnalyticsPopularityAlgorithm(RecommendationAlgorithm):
     Supports filtering by period, type, and minimum calls.
     """
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, data_loader: Optional[Any] = None):
         super().__init__(name="analytics_popularity")
         self.db = db
+        self.data_loader = data_loader
         self.period = "all"  # Default period
         self.min_calls = 1   # Default minimum calls
     
@@ -38,7 +39,10 @@ class AnalyticsPopularityAlgorithm(RecommendationAlgorithm):
         self,
         user_id: str,
         n: int = 10,
-        exclude_services: Optional[List[int]] = None
+        exclude_services: Optional[List[int]] = None,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> List[Recommendation]:
         """
         Generate analytics-based popularity recommendations
@@ -47,6 +51,9 @@ class AnalyticsPopularityAlgorithm(RecommendationAlgorithm):
             user_id: User identifier (NOT used for personalization)
             n: Number of recommendations
             exclude_services: Services to exclude (optional)
+            is_dataset: True if recommending datasets, False for services
+            dataset_id: Optional dataset filter for service recommendations
+            service_id: Optional service filter for dataset recommendations
             
         Returns:
             List of popular services from real-time DB data
@@ -110,13 +117,37 @@ class AnalyticsPopularityAlgorithm(RecommendationAlgorithm):
         # Apply exclusions
         exclude_set = set(exclude_services) if exclude_services else set()
         
+        # Get allowed items if filtered
+        allowed_items = None
+        if self.data_loader is not None:
+            if not is_dataset:
+                if dataset_id is not None:
+                    allowed_items = self.data_loader.get_services_using_dataset(dataset_id)
+            else:
+                if service_id is not None:
+                    allowed_items = self.data_loader.get_datasets_using_service(service_id)
+        
         # Build recommendations
         recommendations = []
         max_calls = call_stats[0]["call_count"] if call_stats else 1
         
         for stat in call_stats:
-            if stat["mid"] in exclude_set:
+            mid = stat["mid"]
+            
+            # 1. Type filter
+            if not is_dataset and mid >= 1000000:
                 continue
+            if is_dataset and mid < 1000000:
+                continue
+            
+            if mid in exclude_set:
+                continue
+            
+            # 2. Connection mapping filter
+            if allowed_items is not None:
+                check_id = mid - 1000000 if is_dataset else mid
+                if check_id not in allowed_items:
+                    continue
             
             # Normalize score
             score = stat["call_count"] / max_calls
@@ -125,7 +156,7 @@ class AnalyticsPopularityAlgorithm(RecommendationAlgorithm):
             popularity = stat["call_count"] / max(stat["unique_users"], 1)
             
             recommendations.append(Recommendation(
-                service_id=stat["mid"],
+                service_id=mid,
                 score=score,
                 algorithm=self.name,
                 confidence=0.9,  # High confidence - based on real data

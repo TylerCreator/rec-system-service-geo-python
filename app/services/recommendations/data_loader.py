@@ -3,12 +3,13 @@ Data loader for recommendations with caching
 """
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, Tuple
+import json
+from typing import Dict, Optional, Tuple, Set, Any, List
 from datetime import datetime, timedelta
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Call
+from app.models.models import Call, Dataset
 from app.services.recommendations.models import UserProfile
 
 
@@ -26,6 +27,8 @@ class DataLoader:
         self._user_profiles: Dict[str, UserProfile] = {}
         self._last_load_time: Optional[datetime] = None
         self._cache_ttl: int = 3600  # 1 hour
+        self._service_dataset_map: Dict[int, Set[int]] = {}
+        self._dataset_service_map: Dict[int, Set[int]] = {}
     
     @property
     def is_cached(self) -> bool:
@@ -72,8 +75,93 @@ class DataLoader:
         
         self._last_load_time = datetime.utcnow()
         print(f"Loaded {len(self._calls_df)} calls")
+
+        # Load service-dataset connection mappings
+        print("Loading service-dataset connections...")
+        self._service_dataset_map.clear()
+        self._dataset_service_map.clear()
+        
+        try:
+            # Build dataset GUID-to-ID mapping
+            result = await db.execute(select(Dataset.id, Dataset.guid))
+            guid_map = {guid: ds_id for ds_id, guid in result.all() if guid}
+            
+            # Query successful service calls (mid < 1,000,000) that reference dataset_id in inputs
+            result = await db.execute(
+                select(Call.mid, Call.input)
+                .where(
+                    and_(
+                        Call.status == "TASK_SUCCEEDED",
+                        Call.mid < 1000000,
+                        Call.input.like("%dataset_id%")
+                    )
+                )
+            )
+            
+            for mid, input_str in result.all():
+                if not input_str:
+                    continue
+                try:
+                    dataset_ids = self._extract_dataset_ids(input_str, guid_map)
+                    for ds_id in dataset_ids:
+                        # populate maps
+                        if ds_id not in self._dataset_service_map:
+                            self._dataset_service_map[ds_id] = set()
+                        self._dataset_service_map[ds_id].add(mid)
+                        
+                        if mid not in self._service_dataset_map:
+                            self._service_dataset_map[mid] = set()
+                        self._service_dataset_map[mid].add(ds_id)
+                except Exception as parse_err:
+                    print(f"Error parsing call connection inputs: {parse_err}")
+            
+            print(f"Service-dataset connections loaded: {len(self._service_dataset_map)} services, {len(self._dataset_service_map)} datasets")
+        except Exception as db_err:
+            print(f"Error loading service-dataset connections: {db_err}")
         
         return self._calls_df
+
+    def _extract_dataset_ids(self, input_data: Any, guid_map: Dict[str, int]) -> Set[int]:
+        """Recursively extract dataset IDs from call input JSON"""
+        dataset_ids = set()
+        
+        if isinstance(input_data, str):
+            try:
+                input_data = json.loads(input_data)
+            except Exception:
+                return dataset_ids
+                
+        if isinstance(input_data, dict):
+            for k, v in input_data.items():
+                if k == "dataset_id":
+                    try:
+                        if isinstance(v, int):
+                            dataset_ids.add(v)
+                        elif isinstance(v, str):
+                            if v in guid_map:
+                                dataset_ids.add(guid_map[v])
+                            else:
+                                dataset_ids.add(int(v))
+                    except Exception:
+                        pass
+                else:
+                    dataset_ids.update(self._extract_dataset_ids(v, guid_map))
+        elif isinstance(input_data, list):
+            for item in input_data:
+                dataset_ids.update(self._extract_dataset_ids(item, guid_map))
+                
+        return dataset_ids
+
+    def get_services_using_dataset(self, dataset_id: int) -> Set[int]:
+        """Get services that have used the specified dataset"""
+        # Normalize dataset_id if it contains the offset
+        if dataset_id >= 1000000:
+            dataset_id -= 1000000
+        return self._dataset_service_map.get(dataset_id, set())
+
+    def get_datasets_using_service(self, service_id: int) -> Set[int]:
+        """Get datasets that have been used by the specified service"""
+        return self._service_dataset_map.get(service_id, set())
     
     async def load_from_csv(self, csv_path: str) -> pd.DataFrame:
         """
@@ -219,6 +307,8 @@ class DataLoader:
         self._service_ids = None
         self._user_profiles.clear()
         self._last_load_time = None
+        self._service_dataset_map.clear()
+        self._dataset_service_map.clear()
         print("Cache cleared")
     
     def get_stats(self) -> Dict:
@@ -230,7 +320,8 @@ class DataLoader:
             "total_users": len(self._user_ids) if self._user_ids is not None else 0,
             "total_services": len(self._service_ids) if self._service_ids is not None else 0,
             "matrix_prepared": self._user_item_matrix is not None,
-            "cached_profiles": len(self._user_profiles)
+            "cached_profiles": len(self._user_profiles),
+            "service_dataset_connections": len(self._service_dataset_map)
         }
 
 

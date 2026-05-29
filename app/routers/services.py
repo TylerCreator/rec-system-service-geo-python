@@ -78,6 +78,7 @@ async def get_user_recommendations(
     period: Optional[str] = Query(None, description="Period for analytics_popularity: week, month, year, all"),
     min_calls: Optional[int] = Query(None, ge=1, description="Minimum calls for analytics_popularity"),
     ids_only: bool = Query(False, description="Return only service IDs (simple array)"),
+    dataset_id: Optional[int] = Query(None, description="Filter by dataset ID that the services have used"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -95,6 +96,7 @@ async def get_user_recommendations(
     - period: Time period for analytics_popularity (week/month/year/all)
     - min_calls: Minimum calls for analytics_popularity
     - ids_only: If true, returns only array of IDs [1001, 1002, ...]
+    - dataset_id: Optional dataset filter to suggest only services that used this dataset
     
     Returns:
     - ids_only=false: Full object with metadata
@@ -107,6 +109,8 @@ async def get_user_recommendations(
         period=period,
         min_calls=min_calls,
         ids_only=ids_only,
+        dataset_id=dataset_id,
+        is_dataset=False,
         db=db
     )
 
@@ -117,6 +121,7 @@ async def get_batch_recommendations(
     n: int = Body(10, ge=1, le=100, description="Number of recommendations per user"),
     algorithm: Optional[str] = Body(None, description="Algorithm to use"),
     ids_only: bool = Body(False, description="Return only service IDs"),
+    dataset_id: Optional[int] = Body(None, description="Filter by dataset ID"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -134,6 +139,8 @@ async def get_batch_recommendations(
         n=n,
         algorithm=algorithm,
         ids_only=ids_only,
+        dataset_id=dataset_id,
+        is_dataset=False,
         db=db
     )
 

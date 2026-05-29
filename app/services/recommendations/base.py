@@ -33,7 +33,10 @@ class RecommendationAlgorithm(ABC):
         self,
         user_id: str,
         n: int = 10,
-        exclude_services: Optional[List[int]] = None
+        exclude_services: Optional[List[int]] = None,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> List[Recommendation]:
         """
         Generate recommendations for a user
@@ -42,6 +45,9 @@ class RecommendationAlgorithm(ABC):
             user_id: User identifier
             n: Number of recommendations to return
             exclude_services: Services to exclude from recommendations
+            is_dataset: Whether we are recommending datasets instead of services
+            dataset_id: Optional dataset filter (recommend only services that used this dataset)
+            service_id: Optional service filter (recommend only datasets used by this service)
             
         Returns:
             List of Recommendation objects sorted by score (descending)
@@ -51,7 +57,10 @@ class RecommendationAlgorithm(ABC):
     async def batch_recommend(
         self,
         user_ids: List[str],
-        n: int = 10
+        n: int = 10,
+        is_dataset: bool = False,
+        dataset_id: Optional[int] = None,
+        service_id: Optional[int] = None
     ) -> dict[str, List[Recommendation]]:
         """
         Generate recommendations for multiple users
@@ -62,13 +71,22 @@ class RecommendationAlgorithm(ABC):
         Args:
             user_ids: List of user identifiers
             n: Number of recommendations per user
+            is_dataset: Whether we are recommending datasets instead of services
+            dataset_id: Optional dataset filter
+            service_id: Optional service filter
             
         Returns:
             Dictionary mapping user_id to list of recommendations
         """
         results = {}
         for user_id in user_ids:
-            results[user_id] = await self.recommend(user_id, n)
+            results[user_id] = await self.recommend(
+                user_id=user_id,
+                n=n,
+                is_dataset=is_dataset,
+                dataset_id=dataset_id,
+                service_id=service_id
+            )
         return results
     
     def get_info(self) -> dict:

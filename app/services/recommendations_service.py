@@ -29,6 +29,9 @@ async def get_recommendations_v2(
     period: Optional[str] = None,
     min_calls: Optional[int] = None,
     ids_only: bool = False,
+    is_dataset: bool = False,
+    dataset_id: Optional[int] = None,
+    service_id: Optional[int] = None,
     db: Optional[AsyncSession] = None
 ) -> Union[Dict[str, Any], List[int]]:
     """
@@ -40,14 +43,17 @@ async def get_recommendations_v2(
         algorithm: Algorithm to use (auto-select if None)
         period: Period for analytics_popularity (week/month/year/all)
         min_calls: Minimum calls for analytics_popularity
-        ids_only: If True, return simple array of service IDs
+        ids_only: If True, return simple array of service/dataset IDs
+        is_dataset: True if recommending datasets, False for services
+        dataset_id: Optional dataset filter for service recommendations
+        service_id: Optional service filter for dataset recommendations
         db: Database session
         
     Returns:
         Full format (ids_only=false):
         {
             "user_id": "user123",
-            "recommendations": [{service_id, score, ...}],
+            "recommendations": [{service_id/dataset_id, score, ...}],
             "algorithm_used": "knn",
             "execution_time_ms": 12.3,
             ...
@@ -74,22 +80,31 @@ async def get_recommendations_v2(
     result = await engine.recommend(
         user_id=user_id,
         n=n,
-        algorithm=algorithm
+        algorithm=algorithm,
+        is_dataset=is_dataset,
+        dataset_id=dataset_id,
+        service_id=service_id
     )
     
     # Return only IDs if requested (simple array)
     if ids_only:
-        return [rec.service_id for rec in result.recommendations]
+        return [
+            (rec.service_id - 1000000 if is_dataset and rec.service_id >= 1000000 else rec.service_id)
+            for rec in result.recommendations
+        ]
     
     # Return full format
-    return result.to_dict()
-
-
+    return result.to_dict(is_dataset=is_dataset)
+ 
+ 
 async def get_recommendations_batch(
     user_ids: List[str],
     n: int = 10,
     algorithm: Optional[str] = None,
     ids_only: bool = False,
+    is_dataset: bool = False,
+    dataset_id: Optional[int] = None,
+    service_id: Optional[int] = None,
     db: Optional[AsyncSession] = None
 ) -> Union[Dict[str, Any], Dict[str, List[int]]]:
     """
@@ -100,6 +115,9 @@ async def get_recommendations_batch(
         n: Number of recommendations per user
         algorithm: Algorithm to use
         ids_only: If True, return only IDs
+        is_dataset: True if recommending datasets, False for services
+        dataset_id: Optional dataset filter
+        service_id: Optional service filter
         db: Database session
         
     Returns:
@@ -129,21 +147,27 @@ async def get_recommendations_batch(
     results = await engine.batch_recommend(
         user_ids=user_ids,
         n=n,
-        algorithm=algorithm
+        algorithm=algorithm,
+        is_dataset=is_dataset,
+        dataset_id=dataset_id,
+        service_id=service_id
     )
     
     # Convert to response format
     if ids_only:
         # Return only IDs for each user
         return {
-            user_id: [rec.service_id for rec in result.recommendations]
+            user_id: [
+                (rec.service_id - 1000000 if is_dataset and rec.service_id >= 1000000 else rec.service_id)
+                for rec in result.recommendations
+            ]
             for user_id, result in results.items()
         }
     
     # Return full format
     return {
         "results": {
-            user_id: result.to_dict()
+            user_id: result.to_dict(is_dataset=is_dataset)
             for user_id, result in results.items()
         },
         "total_users": len(results),

@@ -81,8 +81,8 @@ python main.py
 | GET | `/services/` | Query: `user?: string`, `limit?: int` | `Service[]` |
 | GET | `/services/legacy/getRecomendations` | Query: `user_id: string` | `int[]` (deprecated) |
 | GET | `/services/legacy/getRecomendation` | Query: `user_id?: string` | `int[]` (deprecated) |
-| GET | `/services/recommendations/{user_id}` | Path: `user_id: string`; Query: `n=10 (1..100)`, `algorithm?: string`, `period?: string`, `min_calls?: int>=1`, `ids_only=false` | `RecommendationResult` или `int[]` при `ids_only=true` |
-| POST | `/services/recommendations/batch` | JSON body: `{ "user_ids": string[], "n"?: int(1..100), "algorithm"?: string, "ids_only"?: bool }` | `{ "results": {...}, "total_users", "algorithm_used" }` или `{ "userId": int[] }` |
+| GET | `/services/recommendations/{user_id}` | Path: `user_id: string`; Query: `n=10 (1..100)`, `algorithm?: string`, `period?: string`, `min_calls?: int>=1`, `ids_only=false`, `dataset_id?: int` | `RecommendationResult` или `int[]` при `ids_only=true` |
+| POST | `/services/recommendations/batch` | JSON body: `{ "user_ids": string[], "n"?: int(1..100), "algorithm"?: string, "ids_only"?: bool, "dataset_id"?: int }` | `{ "results": {...}, "total_users", "algorithm_used" }` или `{ "userId": int[] }` |
 | GET | `/services/recommendations/algorithms` | Query: `algorithm?: string` | `{ "<algorithm>": {...} }` или `{ "error": ... }` |
 | GET | `/services/recommendations/stats` | Без параметров | `{ "is_initialized", "algorithms", "default_algorithm", "data_loader", "cache" }` |
 | POST | `/services/recommendations/refresh` | Без body | `{ "success": bool, "message": string, "stats"?: {...} }` |
@@ -198,6 +198,8 @@ python main.py
 | Method | Path | Интерфейс | Ответ |
 | --- | --- | --- | --- |
 | GET | `/datasets/update` | Без параметров | `{ "message": "Datasets updated successfully" }` |
+| GET | `/datasets/recommendations/{user_id}` | Path: `user_id: string`; Query: `n=10 (1..100)`, `algorithm?: string`, `period?: string`, `min_calls?: int>=1`, `ids_only=false`, `service_id?: int` | `RecommendationResult` (с полем `dataset_id` вместо `service_id`) или `int[]` при `ids_only=true` |
+| POST | `/datasets/recommendations/batch` | JSON body: `{ "user_ids": string[], "n"?: int(1..100), "algorithm"?: string, "ids_only"?: bool, "service_id"?: int }` | `{ "results": {...}, "total_users", "algorithm_used" }` или `{ "userId": int[] }` |
 
 ### Compositions
 
