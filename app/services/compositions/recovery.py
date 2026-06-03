@@ -15,7 +15,7 @@ from app.services.utils.validators import is_hashable
 from .service_map import build_service_connection_map, build_dataset_guid_map
 from .builder import build_composition_for_task, normalize_composition
 from .helpers import add_task_link, normalize_dataset_id
-from .repository import create_compositions, create_users
+from .repository import create_compositions, create_users, create_table_compositions
 
 SUCCESS_STATUSES = {"TASK_SUCCEEDED", "TASK_SUCCESS", "SUCCESS", "SUCCEEDED"}
 
@@ -55,6 +55,27 @@ def _normalize_link_value(value: Any) -> Any:
             return str(parsed)
 
     return str(parsed)
+
+
+def _extract_dataset_ids_from_value(value: Any) -> List[Any]:
+    """Recursively extract dataset_id values from nested input structures."""
+    out: List[Any] = []
+
+    if isinstance(value, str):
+        parsed = safe_json_parse(value, value)
+        if parsed is not value:
+            value = parsed
+
+    if isinstance(value, dict):
+        if "dataset_id" in value:
+            out.append(value.get("dataset_id"))
+        for v in value.values():
+            out.extend(_extract_dataset_ids_from_value(v))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(_extract_dataset_ids_from_value(item))
+
+    return out
 
 
 def _is_success_status(status: Any) -> bool:
@@ -155,7 +176,7 @@ def _register_task_outputs(task: Call, result_data: Dict, service_outputs: Dict,
     for param_name in service_outputs.keys():
         output_value = result_data.get(param_name)
         widget_type = service_outputs[param_name]
-
+        
         if widget_type == WIDGET_EDIT:
             output_key = _normalize_link_value(output_value)
             if output_key is None:
@@ -187,6 +208,7 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         
         # Build service connection map
         in_and_out = await build_service_connection_map(db)
+        guid_map = await build_dataset_guid_map(db)
         
         # Get all tasks
         print("Loading tasks...")
@@ -199,7 +221,6 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         task_links = {}
         task_id_to_index = {task.id: idx for idx, task in enumerate(tasks_list)}
         users = {}
-        
         # Build users dict
         for task in tasks_list:
             if task.owner:
@@ -247,10 +268,43 @@ async def recover(db: AsyncSession) -> Dict[str, Any]:
         await create_compositions(db, compositions)
         await create_users(db, users)
         
+        # Build table compositions from recovered compositions (not from raw Calls).
+        # For each composition, scan all node inputs/outputs for dataset_id references
+        # and collect an ordered sequence of unique table IDs.
+        table_compositions = []
+        for comp in compositions:
+            table_ids_ordered: List[int] = []
+            seen_tids: set = set()
+            for node in comp.get("nodes", []):
+                # Scan all inputs for dataset_id values
+                for inp in node.get("inputs", []):
+                    val = inp.get("value")
+                    if val is None or (isinstance(val, str) and val.startswith("ref::")):
+                        continue
+                    dataset_ids = _extract_dataset_ids_from_value(val)
+                    for did in dataset_ids:
+                        try:
+                            tid = normalize_dataset_id(did, guid_map)
+                        except Exception:
+                            continue
+                        if tid not in seen_tids:
+                            seen_tids.add(tid)
+                            table_ids_ordered.append(tid)
+            
+            if len(table_ids_ordered) >= 2:
+                table_compositions.append({
+                    "id": comp.get("id", ""),
+                    "table_ids": table_ids_ordered,
+                })
+        
+        await create_table_compositions(db, table_compositions)
+        print(f"Created {len(table_compositions)} table compositions (from {len(compositions)} compositions)")
+        
         return {
             "success": True,
             "message": "Service composition recovery completed",
             "compositionsCount": len(compositions),
+            "tableCompositionsCount": len(table_compositions),
             "usersCount": len(users)
         }
         

@@ -17,14 +17,23 @@ def normalize_dataset_id(dataset_id: Any, guid_map: Dict[str, int]) -> int:
     Returns:
         Normalized dataset ID with offset
     """
-    normalized_id = dataset_id
+    normalized_id: Any = dataset_id
     
-    # Convert GUID to ID if needed
-    if isinstance(dataset_id, str) and dataset_id in guid_map:
-        normalized_id = guid_map[dataset_id]
+    # Convert GUID to numeric ID if possible
+    if isinstance(dataset_id, str):
+        if dataset_id in guid_map:
+            normalized_id = guid_map[dataset_id]
+        else:
+            # Numeric string dataset ids are common in logs
+            try:
+                normalized_id = int(dataset_id)
+            except Exception:
+                # Unknown GUID/string: cannot normalize to int without a map
+                # Callers should handle this (e.g. skip dataset link or store separately).
+                raise ValueError(f"Unsupported dataset_id format (no guid_map entry): {dataset_id}")
     
     # Add offset to distinguish from service IDs
-    return normalized_id + DATASET_ID_OFFSET
+    return int(normalized_id) + DATASET_ID_OFFSET
 
 
 def add_task_link(links: Dict, task_id: int, source_id: int, 

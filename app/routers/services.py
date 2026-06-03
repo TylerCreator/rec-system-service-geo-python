@@ -24,6 +24,19 @@ async def get_services(
     return await services_service.get_services(db, user, limit)
 
 
+@router.get("/update")
+async def update_services(db: AsyncSession = Depends(get_db)):
+    """
+    Update services metadata from remote CRIS server into local DB.
+
+    This is intentionally separate from /update/all, because /update/all can be slow
+    due to calls history sync. Having a dedicated endpoint allows local workflows
+    (composition recovery + recommendations) to work with proper service params.
+    """
+    await services_service.update_services(db)
+    return {"message": "Services updated successfully"}
+
+
 # ===== LEGACY ENDPOINTS (DEPRECATED) =====
 
 @router.get("/legacy/getRecomendations")
